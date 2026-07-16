@@ -1,0 +1,380 @@
+﻿-- lib/scene3d.okzlib — 3D scene building library
+SCENE3D = {}
+
+-- Create a vertex (with optional UV)
+SCENE3D.vert = function(x, y, z, u, v)
+  local vt = { x = x; y = y; z = z }
+  if u ~= nil then vt.u = u end
+  if v ~= nil then vt.v = v end
+  return vt
+end
+
+-- Create a triangle
+SCENE3D.tri = function(i0, i1, i2, r, g, b, a)
+  if a == nil then a = 255 end
+  return { i0 = i0; i1 = i1; i2 = i2; color = { r = r; g = g; b = b; a = a } }
+end
+
+-- Create a textured triangle (with texture pixel array)
+SCENE3D.texTri = function(i0, i1, i2, texture, texW, texH)
+  return { i0 = i0; i1 = i1; i2 = i2; texture = texture; texW = texW; texH = texH }
+end
+
+-- Create a textured quad (4 verts + 2 tris) from a sprite frame
+-- @param x, y, z: center position
+-- @param w, h: world-space size
+-- @param pixels: sprite pixel array (1D, w*h)
+-- @param fw, fh: frame pixel dimensions
+SCENE3D.texQuad = function(x, y, z, w, h, pixels, fw, fh)
+  local hw = w / 2; local hh = h / 2
+  local verts = {
+    SCENE3D.vert(x - hw, y - hh, z, 0, 1);
+    SCENE3D.vert(x + hw, y - hh, z, 1, 1);
+    SCENE3D.vert(x + hw, y + hh, z, 1, 0);
+    SCENE3D.vert(x - hw, y + hh, z, 0, 0);
+  }
+  local tris = {
+    SCENE3D.texTri(0, 1, 2, pixels, fw, fh);
+    SCENE3D.texTri(0, 2, 3, pixels, fw, fh);
+  }
+  return { verts = verts; tris = tris }
+end
+
+-- Create a textured box (6 faces, texture mapped on each)
+-- @param cx, cz: center X and Z
+-- @param w, h, d: width, height, depth
+-- @param pixels: sprite pixel array
+-- @param fw, fh: texture pixel dimensions
+SCENE3D.texBox = function(cx, w, h, d, pixels, fw, fh)
+  local hw = w / 2; local hh = h / 2; local hd = d / 2
+  local raw = {
+    { x = -hw; y = -hh; z = -hd };
+    { x = hw; y = -hh; z = -hd };
+    { x = hw; y = hh; z = -hd };
+    { x = -hw; y = hh; z = -hd };
+    { x = hw; y = -hh; z = hd };
+    { x = -hw; y = -hh; z = hd };
+    { x = -hw; y = hh; z = hd };
+    { x = hw; y = hh; z = hd };
+  }
+  local uvFaces = {
+    { vi = { 1; 2; 3; 4 }; uv = { { 0; 1 }; { 1; 1 }; { 1; 0 }; { 0; 0 } } };
+    { vi = { 6; 5; 8; 7 }; uv = { { 0; 1 }; { 1; 1 }; { 1; 0 }; { 0; 0 } } };
+    { vi = { 1; 4; 7; 6 }; uv = { { 0; 1 }; { 1; 1 }; { 1; 0 }; { 0; 0 } } };
+    { vi = { 2; 3; 8; 5 }; uv = { { 0; 1 }; { 1; 1 }; { 1; 0 }; { 0; 0 } } };
+    { vi = { 4; 3; 8; 7 }; uv = { { 0; 1 }; { 1; 1 }; { 1; 0 }; { 0; 0 } } };
+    { vi = { 1; 2; 5; 6 }; uv = { { 0; 1 }; { 1; 1 }; { 1; 0 }; { 0; 0 } } };
+  }
+  local verts = {}; local tris = {}; local vi = 0; local ti = 0
+  for fi = 1, #uvFaces do
+    local face = uvFaces[fi]
+    for k = 1, 4 do
+      local p = raw[face.vi[k]]
+      local uv = face.uv[k]
+      vi = vi + 1
+      verts[vi] = { x = cx + p.x; y = hh + p.y; z = p.z; u = uv[1]; v = uv[2] }
+    end
+    local i0 = vi - 4; local i1 = vi - 3; local i2 = vi - 2; local i3 = vi - 1
+    ti = ti + 1; tris[ti] = { i0 = i0; i1 = i1; i2 = i2; texture = pixels; texW = fw; texH = fh }
+    ti = ti + 1; tris[ti] = { i0 = i0; i1 = i2; i2 = i3; texture = pixels; texW = fw; texH = fh }
+  end
+  return { verts = verts; tris = tris }
+end
+
+-- Build a textured ground that tiles a sprite texture
+-- @param size: world units per side
+-- @param texture: sprite pixel array
+-- @param texW, texH: texture dimensions in pixels
+-- @param tileScale: world units per tile repeat (default 2)
+-- @param subdivs: number of subdivisions per side (default 10)
+SCENE3D.texturedGround = function(size, texture, texW, texH, tileScale, subdivs)
+  if tileScale == nil then tileScale = 2 end
+  if subdivs == nil then subdivs = 10 end
+  local half = size / 2
+  local cellSize = size / subdivs
+  local cellUV = cellSize / tileScale
+  local verts = {}; local tris = {}; local vi = 0; local ti = 0
+  for gz = 0, subdivs - 1 do
+    for gx = 0, subdivs - 1 do
+      local x0 = gx * cellSize - half; local z0 = gz * cellSize - half
+      local x1 = x0 + cellSize; local z1 = z0 + cellSize
+      local u0 = gx * cellUV; local v0 = gz * cellUV
+      local u1 = u0 + cellUV; local v1 = v0 + cellUV
+      verts[vi + 1] = { x = x0; y = 0; z = z0; u = u0; v = v0 }; vi = vi + 1
+      verts[vi + 1] = { x = x1; y = 0; z = z0; u = u1; v = v0 }; vi = vi + 1
+      verts[vi + 1] = { x = x1; y = 0; z = z1; u = u1; v = v1 }; vi = vi + 1
+      verts[vi + 1] = { x = x0; y = 0; z = z1; u = u0; v = v1 }; vi = vi + 1
+      local i0 = vi - 4; local i1 = vi - 3; local i2 = vi - 2; local i3 = vi - 1
+      ti = ti + 1; tris[ti] = { i0 = i0; i1 = i2; i2 = i1; texture = texture; texW = texW; texH = texH }
+      ti = ti + 1; tris[ti] = { i0 = i0; i1 = i3; i2 = i2; texture = texture; texW = texW; texH = texH }
+    end
+  end
+  return { verts = verts; tris = tris }
+end
+
+-- Build a ground with two textures and smooth per-vertex blending
+-- @param size: world units per side
+-- @param texture1: first texture pixel array
+-- @param tex1W, tex1H: first texture dimensions
+-- @param texture2: second texture pixel array
+-- @param tex2W, tex2H: second texture dimensions
+-- @param blendFn: function(x, z) returning 0..1 (0=texture1, 1=texture2)
+-- @param tileScale: world units per tile repeat (default 2)
+-- @param subdivs: number of subdivisions per side (default 10)
+SCENE3D.texturedGroundBlend = function(size, texture1, tex1W, tex1H, texture2, tex2W, tex2H, blendFn, tileScale, subdivs)
+  if tileScale == nil then tileScale = 2 end
+  if subdivs == nil then subdivs = 10 end
+  local half = size / 2
+  local cellSize = size / subdivs
+  local cellUV = cellSize / tileScale
+  local verts = {}; local tris = {}; local vi = 0; local ti = 0
+  for gz = 0, subdivs - 1 do
+    for gx = 0, subdivs - 1 do
+      local x0 = gx * cellSize - half; local z0 = gz * cellSize - half
+      local x1 = x0 + cellSize; local z1 = z0 + cellSize
+      local u0 = gx * cellUV; local v0 = gz * cellUV
+      local u1 = u0 + cellUV; local v1 = v0 + cellUV
+      local b00 = blendFn(x0, z0); local b10 = blendFn(x1, z0)
+      local b11 = blendFn(x1, z1); local b01 = blendFn(x0, z1)
+      verts[vi + 1] = { x = x0; y = 0; z = z0; u = u0; v = v0; blend = b00 }; vi = vi + 1
+      verts[vi + 1] = { x = x1; y = 0; z = z0; u = u1; v = v0; blend = b10 }; vi = vi + 1
+      verts[vi + 1] = { x = x1; y = 0; z = z1; u = u1; v = v1; blend = b11 }; vi = vi + 1
+      verts[vi + 1] = { x = x0; y = 0; z = z1; u = u0; v = v1; blend = b01 }; vi = vi + 1
+      local i0 = vi - 4; local i1 = vi - 3; local i2 = vi - 2; local i3 = vi - 1
+      ti = ti + 1; tris[ti] = { i0 = i0; i1 = i2; i2 = i1; texture = texture1; texW = tex1W; texH = tex1H; texture2 = texture2; texW2 = tex2W; texH2 = tex2H }
+      ti = ti + 1; tris[ti] = { i0 = i0; i1 = i3; i2 = i2; texture = texture1; texW = tex1W; texH = tex1H; texture2 = texture2; texW2 = tex2W; texH2 = tex2H }
+    end
+  end
+  return { verts = verts; tris = tris }
+end
+
+-- Build a flat ground
+-- @param size: number of tiles per side
+-- @param tileSize: world units per tile
+-- @param colors: table of {r,g,b} for alternating tiles
+SCENE3D.ground = function(size, tileSize, colors)
+  local verts = {}; local tris = {}; local vi = 0; local ti = 0
+  local half = size * tileSize / 2
+  local nc = #colors
+  for z = 0, size - 1 do
+    for x = 0, size - 1 do
+      local col = colors[((x + z) % nc) + 1]
+      local x0 = x * tileSize - half; local z0 = z * tileSize - half
+      local x1 = x0 + tileSize; local z1 = z0 + tileSize
+      verts[vi + 1] = { x = x0; y = 0; z = z0 }; vi = vi + 1
+      verts[vi + 1] = { x = x1; y = 0; z = z0 }; vi = vi + 1
+      verts[vi + 1] = { x = x1; y = 0; z = z1 }; vi = vi + 1
+      verts[vi + 1] = { x = x0; y = 0; z = z1 }; vi = vi + 1
+      local i0 = vi - 4; local i1 = vi - 3; local i2 = vi - 2; local i3 = vi - 1
+      ti = ti + 1; tris[ti] = { i0 = i0; i1 = i1; i2 = i2; color = { r = col[1]; g = col[2]; b = col[3] } }
+      ti = ti + 1; tris[ti] = { i0 = i0; i1 = i2; i2 = i3; color = { r = col[1]; g = col[2]; b = col[3] } }
+    end
+  end
+  return { verts = verts; tris = tris }
+end
+
+-- Build a box (all 6 faces)
+-- @param cx, cz: center X and Z
+-- @param w, h, d: width, height, depth
+-- @param r, g, b: color
+-- @param a: alpha (optional, default 255)
+SCENE3D.box = function(cx, cz, w, h, d, r, g, b, a, cy, rx, ry, rz)
+  if a == nil then a = 255 end
+  if cy == nil then cy = 0 end
+  if rx == nil then rx = 0 end
+  if ry == nil then ry = 0 end
+  if rz == nil then rz = 0 end
+  local hw = w / 2; local hd = d / 2; local hh = h / 2
+  local raw = {
+    { x = -hw; y = -hh; z = -hd };
+    { x = hw; y = -hh; z = -hd };
+    { x = hw; y = hh; z = -hd };
+    { x = -hw; y = hh; z = -hd };
+    { x = hw; y = -hh; z = hd };
+    { x = -hw; y = -hh; z = hd };
+    { x = -hw; y = hh; z = hd };
+    { x = hw; y = hh; z = hd };
+  }
+  local cxr = math.cos(rx); local sxr = math.sin(rx)
+  local cy2 = math.cos(ry); local sy = math.sin(ry)
+  local czr = math.cos(rz); local sz = math.sin(rz)
+  local verts = {}
+  for i = 1, 8 do
+    local p = raw[i]
+    local y1 = p.y * cxr - p.z * sxr
+    local z1 = p.y * sxr + p.z * cxr
+    local x1 = p.x * cy2 + z1 * sy
+    local z2 = -p.x * sy + z1 * cy2
+    local x2 = x1 * czr - y1 * sz
+    local y2 = x1 * sz + y1 * czr
+    verts[i] = { x = cx + x2; y = cy + hh + y2; z = cz + z2 }
+  end
+  local tris = {}; local ti = 0
+  -- 6 faces (2 tris each)
+  local shade = function(f) return math.floor(r * f); math.floor(g * f); math.floor(b * f) end
+  local faces = {
+    { i = { 0, 1, 2, 3 }; f = 1.0 };
+    { i = { 5, 6, 7, 4 }; f = 0.8 };
+    { i = { 0, 3, 6, 5 }; f = 0.6 };
+    { i = { 1, 2, 7, 4 }; f = 0.7 };
+    { i = { 3, 2, 7, 6 }; f = 0.9 };
+    { i = { 0, 5, 4, 1 }; f = 0.45 }
+  }
+  for fi = 1, #faces do
+    local f = faces[fi]
+    local cr = math.floor(r * f.f); local cg = math.floor(g * f.f); local cb = math.floor(b * f.f)
+    ti = ti + 1; tris[ti] = { i0 = f.i[1]; i1 = f.i[2]; i2 = f.i[3]; color = { r = cr; g = cg; b = cb; a = a } }
+    ti = ti + 1; tris[ti] = { i0 = f.i[1]; i1 = f.i[3]; i2 = f.i[4]; color = { r = cr; g = cg; b = cb; a = a } }
+  end
+  return { verts = verts; tris = tris }
+end
+
+-- Build a column (4-sided pillar)
+-- @param cx, cz: center X and Z
+-- @param radius, height: dimensions
+-- @param r, g, b: base color
+-- @param a: alpha (optional)
+-- @param topAlpha: alpha for top face (optional)
+SCENE3D.column = function(cx, cz, radius, height, r, g, b, a, topAlpha)
+  if a == nil then a = 255 end
+  if topAlpha == nil then topAlpha = a end
+  local verts = {}; local tris = {}; local vi = 0; local ti = 0
+  local sides = 4
+  for side = 0, sides - 1 do
+    local sa1 = side * 6.283 / sides
+    local sa2 = (side + 1) * 6.283 / sides
+    local sx1 = math.sin(sa1) * radius; local sz1 = math.cos(sa1) * radius
+    local sx2 = math.sin(sa2) * radius; local sz2 = math.cos(sa2) * radius
+    verts[vi + 1] = { x = cx + sx1; y = 0; z = cz + sz1 }; vi = vi + 1
+    verts[vi + 1] = { x = cx + sx2; y = 0; z = cz + sz2 }; vi = vi + 1
+    verts[vi + 1] = { x = cx + sx2; y = height; z = cz + sz2 }; vi = vi + 1
+    verts[vi + 1] = { x = cx + sx1; y = height; z = cz + sz1 }; vi = vi + 1
+    local i0 = vi - 4; local i1 = vi - 3; local i2 = vi - 2; local i3 = vi - 1
+    ti = ti + 1; tris[ti] = { i0 = i0; i1 = i1; i2 = i2; color = { r = r; g = g; b = b; a = a } }
+    ti = ti + 1; tris[ti] = { i0 = i0; i1 = i2; i2 = i3; color = { r = r; g = g; b = b; a = a } }
+  end
+  -- Top
+  for side = 0, sides - 1 do
+    local sa1 = side * 6.283 / sides
+    local sa2 = (side + 1) * 6.283 / sides
+    local sx1 = math.sin(sa1) * radius; local sz1 = math.cos(sa1) * radius
+    local sx2 = math.sin(sa2) * radius; local sz2 = math.cos(sa2) * radius
+    verts[vi + 1] = { x = cx + sx1; y = height; z = cz + sz1 }; vi = vi + 1
+    verts[vi + 1] = { x = cx + sx2; y = height; z = cz + sz2 }; vi = vi + 1
+    verts[vi + 1] = { x = cx; y = height; z = cz }; vi = vi + 1
+    local i0 = vi - 3; local i1 = vi - 2; local i2 = vi - 1
+    ti = ti + 1; tris[ti] = { i0 = i0; i1 = i1; i2 = i2; color = { r = r; g = g; b = b; a = topAlpha } }
+  end
+  return { verts = verts; tris = tris }
+end
+
+-- Merge multiple objects into one scene
+SCENE3D.merge = function(objects)
+  local sv = {}; local st = {}; local voff = 0; local vi = 1; local ti = 1
+  for oi = 1, #objects do
+    local o = objects[oi]
+    if o ~= nil and o.verts ~= nil and o.tris ~= nil then
+      local nv = #o.verts
+      for i2 = 1, nv do
+        local v = o.verts[i2]; if v ~= nil then sv[vi] = v; vi = vi + 1 end
+      end
+      local nt = #o.tris
+      for i2 = 1, nt do
+        local t = o.tris[i2]
+        if t ~= nil then
+          local nt2 = { i0 = t.i0 + voff; i1 = t.i1 + voff; i2 = t.i2 + voff; color = t.color }
+          if t.texture ~= nil then nt2.texture = t.texture; nt2.texW = t.texW; nt2.texH = t.texH end
+          if t.texture2 ~= nil then nt2.texture2 = t.texture2; nt2.texW2 = t.texW2; nt2.texH2 = t.texH2 end
+          st[ti] = nt2; ti = ti + 1
+        end
+      end
+      voff = vi - 1
+    end
+  end
+  return { verts = sv; tris = st }
+end
+
+-- Render helper
+SCENE3D.render = function(scene, camX, camY, camZ, camRX, camRY, fov, scale, billboards)
+  local cfg = {
+    vertices = scene.verts;
+    triangles = scene.tris;
+    camera = { x = camX; y = camY; z = camZ; rx = camRX; ry = camRY; fov = fov };
+    scale = scale or 0.5;
+  }
+  if billboards ~= nil then cfg.billboards = billboards end
+  screen.render3D(cfg)
+end
+
+-- Make a billboard sprite from a pixel array
+-- @param x, y, z: position
+-- @param w, h: sprite dimensions in pixels
+-- @param pixels: 1D array of {r,g,b} or nil
+SCENE3D.billboard = function(x, y, z, w, h, pixels)
+  return { x = x; y = y; z = z; w = w; h = h; pixels = pixels }
+end
+
+-- Build a terrain from heightmap with optional texture
+-- @param size: world-space size of the terrain
+-- @param heightmap: 1D array of heights (rows*cols), or nil for flat
+-- @param colors: 1D array of {r,g,b} per vertex, or nil for green
+-- @param cells: subdivisions per side (default 40)
+-- @param texture: sprite pixel array for texturing (optional)
+-- @param texW, texH: texture dimensions (optional)
+-- @param tileScale: how many world units per texture tile (optional, default 4)
+SCENE3D.terrain = function(size, heightmap, colors, cells, texture, texW, texH, tileScale)
+  if cells == nil then cells = 40 end
+  if tileScale == nil then tileScale = 4 end
+  local half = size / 2
+  local cellSize = size / cells
+  local verts = {}; local tris = {}; local vi = 0; local ti = 0
+  local rows = cells + 1
+  for gz = 0, cells do
+    for gx = 0, cells do
+      local x = gx * cellSize - half
+      local z = gz * cellSize - half
+      local idx = gz * rows + gx + 1
+      local h = 0
+      if heightmap ~= nil then h = heightmap[idx] or 0 end
+      local vt = { x = x; y = h; z = z }
+      if texture ~= nil then
+        vt.u = (gx * cellSize / tileScale) / texW * texW
+        vt.v = (gz * cellSize / tileScale) / texH * texH
+      end
+      if colors ~= nil then
+        local c = colors[idx]
+        if c ~= nil then
+          if type(c) == "table" then vt.color = c
+          else vt.cr = c end
+        end
+      end
+      verts[vi + 1] = vt; vi = vi + 1
+    end
+  end
+  for gz = 0, cells do
+    for gx = 0, cells do
+      local i0 = gz * rows + gx + 1
+      local i1 = i0 + 1
+      local i2 = (gz + 1) * rows + gx + 1
+      local i3 = i2 + 1
+      if texture ~= nil then
+        ti = ti + 1; tris[ti] = { i0 = i0; i1 = i2; i2 = i1; texture = texture; texW = texW; texH = texH }
+        ti = ti + 1; tris[ti] = { i0 = i1; i1 = i2; i2 = i3; texture = texture; texW = texW; texH = texH }
+      else
+        local c = nil
+        if colors ~= nil then
+          local c0 = colors[i0]
+          if type(c0) == "table" then c = { r = c0[1]; g = c0[2]; b = c0[3] }
+          elseif type(c0) == "number" then c = { r = 100; g = 160; b = 80 }
+          else c = { r = 100; g = 160; b = 80 }
+          end
+        else
+          c = { r = 100; g = 160; b = 80 }
+        end
+        ti = ti + 1; tris[ti] = { i0 = i0; i1 = i2; i2 = i1; color = c }
+        ti = ti + 1; tris[ti] = { i0 = i1; i1 = i2; i2 = i3; color = c }
+      end
+    end
+  end
+  return { verts = verts; tris = tris }
+end

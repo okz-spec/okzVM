@@ -1,0 +1,132 @@
+{
+  "name": "okzvm",
+  "version": "0.1.0",
+  "description": "okzVM - A virtual computer platform with okzCODE language",
+  "main": "dist/main/main/index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev:vite": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "test": "tsx src/test/run-test.ts",
+    "test:trace": "tsx src/test/run-test.ts --trace",
+    "test:file": "tsx src/test/run-test.ts --file",
+    "build:vite": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build": "npm run build:vite && npm run build:main",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux",
+    "dist:all": "electron-builder --win --mac --linux"
+  },
+  "keywords": [
+    "okz",
+    "vm",
+    "okzVM",
+    "virtual-machine",
+    "programming-language",
+    "emulator"
+  ],
+  "author": "okzzDev",
+  "devDependencies": {
+    "@types/node": "^22.x",
+    "@types/react": "^19.x",
+    "@types/react-dom": "^19.x",
+    "@vitejs/plugin-react": "^4.x",
+    "concurrently": "^9.x",
+    "electron": "^34.x",
+    "electron-builder": "^25.x",
+    "tsx": "^4.22.4",
+    "typescript": "^5.x",
+    "vite": "^6.x",
+    "wait-on": "^8.x"
+  },
+  "dependencies": {
+    "98.css": "^0.1.21",
+    "react": "^19.x",
+    "react-dom": "^19.x"
+  },
+  "build": {
+    "appId": "com.okzvm.app",
+    "productName": "okzVM",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "examples",
+        "to": "examples",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons/iconVM_WINLIN.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icons/iconVM_MAC.png",
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons/iconVM_WINLIN.png",
+      "category": "Development"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

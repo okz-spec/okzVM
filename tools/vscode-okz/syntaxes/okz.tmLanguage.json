@@ -1,0 +1,93 @@
+{
+  "scopeName": "source.okz",
+  "name": "okzCODE",
+  "fileTypes": ["okz", "okzlib"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#builtins" },
+    { "include": "#functions" },
+    { "include": "#operators" },
+    { "include": "#constants" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "match": "--.*$",
+          "name": "comment.line.double-dash.okz"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.okz",
+          "patterns": [
+            { "match": "\\\\[ntr\"'\\\\]", "name": "constant.character.escape.okz" }
+          ]
+        },
+        {
+          "begin": "'",
+          "end": "'",
+          "name": "string.quoted.single.okz"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "match": "\\b[0-9]+(\\.[0-9]+)?\\b", "name": "constant.numeric.okz" },
+        { "match": "\\b0x[0-9a-fA-F]+\\b", "name": "constant.numeric.hex.okz" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(and|or|not|if|then|else|elseif|end|for|while|do|repeat|until|function|return|local|break|continue|import|in|nil|true|false)\\b",
+          "name": "keyword.control.okz"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "match": "\\b(print|type|tostring|tonumber|pcall|pairs|ipairs)\\b",
+          "name": "support.function.builtin.okz"
+        },
+        {
+          "match": "\\b(math|string|table|bit|screen|keyboard|mouse|system|audio|process|file|debug)\\s*\\.\\s*(\\w+)\\b",
+          "name": "support.class.okz"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "match": "\\b(function\\s+)?(\\w+)\\s*(\\()",
+          "captures": {
+            "1": { "name": "keyword.control.okz" },
+            "2": { "name": "entity.name.function.okz" },
+            "3": { "name": "punctuation.definition.parameters.okz" }
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "match": "[+\\-*/%^#]", "name": "keyword.operator.arithmetic.okz" },
+        { "match": "[=<>!~]=?", "name": "keyword.operator.comparison.okz" },
+        { "match": "[&|~<>]{1,2}", "name": "keyword.operator.bitwise.okz" },
+        { "match": "\\.\\.", "name": "keyword.operator.concatenation.okz" }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        { "match": "\\b(true|false|nil)\\b", "name": "constant.language.okz" }
+      ]
+    }
+  }
+}

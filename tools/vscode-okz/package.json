@@ -1,0 +1,32 @@
+{
+  "name": "okzcode-language",
+  "displayName": "okzCODE Language Support",
+  "description": "Syntax highlighting, snippets, and IntelliSense for okzCODE (.okz / .okzlib)",
+  "version": "0.1.0",
+  "publisher": "okzvm",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages", "Snippets"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "okz",
+        "aliases": ["okzCODE", "okz"],
+        "extensions": [".okz", ".okzlib"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "okz",
+        "scopeName": "source.okz",
+        "path": "./syntaxes/okz.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "okz",
+        "path": "./snippets/okz.json"
+      }
+    ]
+  }
+}
