@@ -29,7 +29,10 @@
     "programming-language",
     "emulator"
   ],
-  "author": "okzzDev",
+  "author": {
+    "name": "okzzDev",
+    "email": "okzcommercial@gmail.com"
+  },
   "devDependencies": {
     "@types/node": "^22.x",
     "@types/react": "^19.x",
