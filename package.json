@@ -123,14 +123,16 @@
         }
       ],
       "icon": "build/icons/iconVM_WINLIN.png",
-      "category": "Development",
-      "maintainer": "okzzDev <okzcommercial@gmail.com>"
+      "category": "Development"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false
+    },
+    "deb": {
+      "maintainer": "okzzDev <okzcommercial@gmail.com>"
     }
   }
 }
