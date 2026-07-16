@@ -81,13 +81,18 @@ jobs:
 
             Choose the archive for your platform below:
 
-            - 🪟 Windows
-            - 🐧 Linux
-            - 🍎 macOS
+            - 🪟 Windows — `.exe`
+            - 🐧 Linux — `.AppImage` or `.deb`
+            - 🍎 macOS — `.dmg` or `.zip`
 
             ---
 
           generate_release_notes: true
           draft: false
           prerelease: false
-          files: release/*
+          files: |
+            release/*.exe
+            release/*.deb
+            release/*.AppImage
+            release/*.dmg
+            release/*.zip
