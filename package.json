@@ -1,7 +1,7 @@
 {
   "name": "okzvm",
   "version": "0.1.0",
-  "description": "okzVM - A virtual computer platform with okzCODE language",
+  "description": "okzVM - A lightweight stack-based virtual machine with a Lua-inspired scripting language.",
   "main": "dist/main/main/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
@@ -123,16 +123,14 @@
         }
       ],
       "icon": "build/icons/iconVM_WINLIN.png",
-      "category": "Development"
+      "category": "Development",
+      "maintainer": "okzzDev <okzcommercial@gmail.com>"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false
-    },
-    "deb": {
-      "maintainer": "okzzDev <okzcommercial@gmail.com>"
     }
   }
 }
