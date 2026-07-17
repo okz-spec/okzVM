@@ -38,7 +38,7 @@ The VM loads `main.okz` from the project directory. Open the Electron window, go
 
 ## 3. The language
 
-The syntax looks like Lua. Here are the basics:
+The syntax looks like Lua:
 
 ```lua
 -- variables
@@ -260,7 +260,7 @@ All paths are relative to the project root.
 
 ### audio
 
-**Playback:**
+Playback:
 - `load(name, path)` loads an audio file
 - `unload(name)` unloads it
 - `play(name, opts?)` plays it (opts: `{volume, loop}`)
@@ -271,7 +271,7 @@ All paths are relative to the project root.
 - `volume(v)` sets the global volume
 - `stopAll()` stops all audio
 
-**Generation:**
+Generation:
 - `tone(freq, dur, type, vol)` generates a sine/square/saw/triangle tone
 - `note(name, oct, dur, type, vol)` generates a tone by note name
 - `genTone(name, sr, freq, dur, type, amp, duty)` generates a named waveform
@@ -280,20 +280,20 @@ All paths are relative to the project root.
 - `silence(name)` fills a buffer with silence
 - `fill(name, ch, val)` fills a channel with a value
 
-**Sample access:**
+Sample access:
 - `sample(name, ch, idx)` reads a sample
 - `setSample(name, ch, idx, val)` writes a sample
 - `getChannel(name, ch)` returns all samples for a channel
 - `setChannel(name, ch, samples)` replaces all samples for a channel
 
-**Manipulation:**
+Manipulation:
 - `reverse(name)` reverses audio
 - `trim(name, start, end)` trims to a range
 - `normalize(name)` normalizes volume
 - `mix(dest, src, vol)` mixes one buffer into another
 - `copy(dest, src)` copies one buffer to another
 
-**Info:**
+Info:
 - `info(name)` returns a table with sample rate, channels, duration, length
 - `sampleRate(name)`, `channels(name)`, `duration(name)`, `length(name)`
 - `fft(name, ch, fftSize)` runs an FFT on a channel
@@ -399,6 +399,26 @@ for i, item in ipairs(inventory) do
   print(i, item.name)
 end
 ```
+
+### Protected calls
+
+`pcall` catches errors without killing the process. If the function runs fine, you get back `true` and the return value. If it throws, you get `false` and the error message.
+
+```lua
+function risky()
+  local x = nil
+  return x.value  -- this will error
+end
+
+local ok, result = pcall(risky)
+if ok then
+  print("success: " .. tostring(result))
+else
+  print("error: " .. result)
+end
+```
+
+This prints `error: attempt to index a nil value` instead of crashing.
 
 ## 6. Limitations
 
