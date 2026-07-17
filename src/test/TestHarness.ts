@@ -379,8 +379,24 @@ export class TestHarness {
         this.report.status = 'halted';
       }
     } catch (err: any) {
-      this.report.status = 'error';
-      this.warn('critical', 'exec', `Runtime error: ${err.message}`, this.pc, { error: err.stack });
+      // Check for a protected frame in the call stack
+      let unwindIdx = -1;
+      for (let i = this.frames.length - 1; i >= 0; i--) {
+        if (this.frames[i].protected) { unwindIdx = i; break; }
+      }
+      if (unwindIdx >= 0) {
+        const frame = this.frames[unwindIdx];
+        this.frames.length = unwindIdx;
+        this.pc = frame.pc;
+        this.locals = frame.locals;
+        this.stack = this.stack.slice(0, frame.sp + 1);
+        this.push(this.boolVal(false));
+        this.push({ type: 'string', value: err.message || 'unknown error' });
+        this.callDepth = unwindIdx;
+      } else {
+        this.report.status = 'error';
+        this.warn('critical', 'exec', `Runtime error: ${err.message}`, this.pc, { error: err.stack });
+      }
     }
 
     this.report.executionTime = Date.now() - this.startTime;
@@ -577,7 +593,7 @@ export class TestHarness {
         } else if (fnVal.type === 'number') {
           const addr = fnVal.value;
           this.stack.splice(this.stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: 'func', nvals: 1 });
+          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: 'func', nvals: 1, protected: false });
           this.pc = addr;
           this.locals = [];
           this.callDepth++;
@@ -585,7 +601,7 @@ export class TestHarness {
         } else if (fnVal.type === 'function') {
           const func = fnVal.value;
           this.stack.splice(this.stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: func.name, nvals });
+          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: func.name, nvals, protected: false });
           this.pc = func.address;
           this.locals = [];
           this.callDepth++;
@@ -768,7 +784,7 @@ export class TestHarness {
             }
           } else {
             const removed = this.stack.splice(this.stack.length - 3, 3);
-            this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: 'for_in_next', nvals: varCount });
+            this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: 'for_in_next', nvals: varCount, protected: false });
             this.pc = iteratorFn.value.address;
             this.locals = [];
           }
@@ -797,7 +813,7 @@ export class TestHarness {
         } else if (fnVal.type === 'function') {
           const func = fnVal.value;
           this.stack.splice(this.stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: func.name, nvals: 1 });
+          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: func.name, nvals: 1, protected: true });
           this.pc = func.address;
           this.locals = [];
           this.callDepth++;

@@ -97,13 +97,13 @@ export class Process {
         } else if (fnVal.type === 'number') {
           const addr = fnVal.value;
           const removed = stack.splice(stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: 'func', nvals: 1 });
+          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: 'func', nvals: 1, protected: false });
           this.pc = addr;
           this.locals = removed.slice(1);
         } else if (fnVal.type === 'function') {
           const func = fnVal.value;
           const removed = stack.splice(stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: func.name, nvals });
+          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: func.name, nvals, protected: false });
           this.pc = func.address;
           const args = removed.slice(1);
           if (func.locals > argCount) {
@@ -236,7 +236,7 @@ export class Process {
             }
           } else {
             const removed = this.stack.splice(this.stack.length - 3, 3);
-            this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals, name: 'for_in_next', nvals: varCount });
+            this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals, name: 'for_in_next', nvals: varCount, protected: false });
             this.pc = iteratorFn.value.address;
             this.locals = removed;
           }
@@ -272,7 +272,7 @@ export class Process {
         } else if (fnVal.type === 'function') {
           const func = fnVal.value;
           const removed = stack.splice(stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: func.name, nvals: 1 });
+          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: func.name, nvals: 1, protected: true });
           this.pc = func.address;
           const args = removed.slice(1);
           if (func.locals > argCount) {
@@ -291,6 +291,22 @@ export class Process {
     }
     } catch (e: any) {
       const msg = e?.message || 'unknown error';
+      // Check for a protected frame in the call stack
+      let unwindIdx = -1;
+      for (let i = this.frames.length - 1; i >= 0; i--) {
+        if (this.frames[i].protected) { unwindIdx = i; break; }
+      }
+      if (unwindIdx >= 0) {
+        const frame = this.frames[unwindIdx];
+        // Unwind: drop all frames above the protected one
+        this.frames.length = unwindIdx;
+        this.pc = frame.pc;
+        this.locals = frame.locals;
+        this.stack.length = frame.sp + 1;
+        this.push({ type: 'boolean', value: false });
+        this.push({ type: 'string', value: msg });
+        return 'continue';
+      }
       this.logFn?.(`Runtime error at line ${line}: ${msg}`, 'error');
       this.halted = true;
       return 'halt';

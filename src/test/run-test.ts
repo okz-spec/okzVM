@@ -185,6 +185,22 @@ const TEST_PROGRAMS: TestCase[] = [
     `,
     expectStatus: 'halted',
   },
+  {
+    name: 'pcall-user-function',
+    source: `
+      function willFail()
+        local x = nil
+        return x.value
+      end
+      local ok, err = pcall(willFail)
+      if ok then
+        print("should not reach here")
+      else
+        print("caught: " .. err)
+      end
+    `,
+    expectStatus: 'halted',
+  },
 ];
 
 function runAllTests(): void {

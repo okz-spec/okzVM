@@ -670,9 +670,14 @@ export class BytecodeGenerator {
   }
 
   private visitCall(node: AST.CallNode): void {
+    const isPcall = node.callee.type === 'variable' && node.callee.name === 'pcall';
     this.visitExpression(node.callee);
     node.args.forEach(arg => this.visitExpression(arg));
-    this.emit('CALL', node.args.length);
+    if (isPcall) {
+      this.emit('CALL_PROTECTED', node.args.length);
+    } else {
+      this.emit('CALL', node.args.length);
+    }
   }
 
   private visitMethodCall(node: AST.MethodCallNode): void {

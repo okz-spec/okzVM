@@ -34,6 +34,7 @@ export interface CallFrame {
   locals: Value[];
   name: string;
   nvals: number;
+  protected: boolean;
 }
 
 export type Value =
