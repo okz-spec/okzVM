@@ -1,12 +1,12 @@
-﻿# okzVM: language reference
+﻿# okzVM language reference
 
-## 1. Overview
+## 1. What this is
 
-okzVM is a lightweight stack-based virtual machine with a Lua-inspired scripting language. Pixel graphics, a software3D rasterizer, audio, file I/O, and multitasking.
+okzVM is a small virtual machine that runs a Lua-like language. It draws pixels to a framebuffer, plays audio, reads files, and can run multiple programs at once. You write `.okz` files, and the VM executes them.
 
-All drawing writes to a single `Uint8Array` framebuffer (`width × height × 4` RGBA). Canvas is used only for the final blit in `screen.sync()`.
+All drawing goes into a `Uint8Array` framebuffer (`width * height * 4` bytes, RGBA). The canvas only gets the final image when you call `screen.sync()`.
 
-## 2. Quick start
+## 2. Getting started
 
 ### Hello world
 
@@ -19,49 +19,52 @@ while true do
 end
 ```
 
+This clears the screen, picks white, draws a rectangle, and shows it. The `while true` loop keeps it running.
+
 ### Project structure
 
 ```
 my-project/
-├── main.okz              # Entry point (required)
-├── assets/               # Binary files (sprites, audio, etc.)
+├── main.okz              # entry point (required)
+├── assets/               # binary files (sprites, audio, etc.)
 │   └── music.wav
-└── lib/                  # Modules (optional)
-    └── mymodule.okzlib   # Your custom module
+└── lib/                  # optional modules
+    └── mymodule.okzlib
 ```
 
-### Running
+### How to run it
 
-The VM loads `main.okz` from the project directory. This file is the first process. Open the project via File > Open Project in the Electron window.
+The VM loads `main.okz` from the project directory. Open the Electron window, go to File > Open Project, and point it at your project folder.
 
-## 3. Language
+## 3. The language
 
-The language is Lua-inspired. Key syntax:
+The syntax looks like Lua. Here are the basics:
 
 ```lua
--- Variables
+-- variables
 local x = 10
 local name = "hello"
 local flag = true
 
--- Functions
+-- functions
 function add(a, b)
   return a + b
 end
 
--- Tables
+-- tables (like dictionaries or objects)
 local player = { x = 0; y = 0; hp = 100 }
 
--- Loops
+-- numeric for loop
 for i = 1, 10 do
   print(i)
 end
 
+-- while loop
 while condition do
   -- body
 end
 
--- Conditionals
+-- if/elseif/else
 if x > 5 then
   -- body
 elseif x > 2 then
@@ -70,24 +73,46 @@ else
   -- body
 end
 
--- Bitwise operators
+-- bitwise operations
 local result = bit.band(0xFF, 0x0F)  -- 15
+```
+
+### Generic for loops
+
+You can iterate over tables with `for ... in`. Two iterator functions are built in: `pairs` and `ipairs`.
+
+`pairs(t)` returns every key-value pair in a table. The order is not guaranteed.
+
+```lua
+local scores = { alice = 90; bob = 85; carol = 92 }
+for name, score in pairs(scores) do
+  print(name .. ": " .. tostring(score))
+end
+```
+
+`ipairs(t)` walks an array in order, starting at index 1. It stops at the first nil.
+
+```lua
+local fruits = { "apple", "banana", "cherry" }
+for i, fruit in ipairs(fruits) do
+  print(i, fruit)
+end
 ```
 
 ### Operator precedence (low to high)
 
 1. `or`
 2. `and`
-3. Comparison: `==`, `~=`, `<`, `>`, `<=`, `>=`
-4. Bitwise: `&`, `|`, `<<`, `>>`
-5. Concatenation: `..`
-6. Addition: `+`, `-`
-7. Multiplication: `*`, `/`, `%`
-8. Unary: `not`, `#`, `-`, `~`
+3. comparison: `==`, `~=`, `<`, `>`, `<=`, `>=`
+4. bitwise: `&`, `|`, `<<`, `>>`
+5. concatenation: `..`
+6. addition: `+`, `-`
+7. multiplication: `*`, `/`, `%`
+8. unary: `not`, `#`, `-`, `~`
 
 ### Modules
 
-Modules use the `.okzlib` extension and are placed in `lib/`. Import by name:
+Modules use the `.okzlib` extension and go in the `lib/` folder. Import them by name:
 
 ```lua
 -- lib/utils.okzlib
@@ -104,155 +129,204 @@ import utils
 local d = UTILS.dist(0, 0, 3, 4)  -- 5
 ```
 
-## 4. Native API
+## 4. Built-in functions
 
-### screen.*, pixel graphics
+### screen (drawing)
 
-- `screen.clear()`: clear to black
-- `screen.color(r, g, b)`: set color (0-255)
-- `screen.pixel(x, y)`: draw pixel
-- `screen.rect(x, y, w, h)`: filled rectangle
-- `screen.rectOutline(x, y, w, h)`: rectangle outline
-- `screen.line(x1, y1, x2, y2)`: line
-- `screen.circle(cx, cy, r)`: filled circle
-- `screen.circleOutline(cx, cy, r)`: circle outline
-- `screen.triangle(x1, y1, x2, y2, x3, y3)`: filled triangle
-- `screen.triangleOutline(x1, y1, x2, y2, x3, y3)`: triangle outline
-- `screen.polygon(points)`: filled polygon from `{x, y}` tables
-- `screen.sync()`: yield CPU, blit framebuffer to canvas
-- `screen.width()` / `screen.height()`: display size
+- `screen.clear()` clears the screen to black
+- `screen.color(r, g, b)` sets the current color (0-255 per channel)
+- `screen.pixel(x, y)` draws a single pixel
+- `screen.rect(x, y, w, h)` draws a filled rectangle
+- `screen.rectOutline(x, y, w, h)` draws a rectangle outline
+- `screen.line(x1, y1, x2, y2)` draws a line
+- `screen.circle(cx, cy, r)` draws a filled circle
+- `screen.circleOutline(cx, cy, r)` draws a circle outline
+- `screen.triangle(x1, y1, x2, y2, x3, y3)` draws a filled triangle
+- `screen.triangleOutline(x1, y1, x2, y2, x3, y3)` draws a triangle outline
+- `screen.polygon(points)` draws a filled polygon from `{x, y}` tables
+- `screen.sync()` yields the CPU and blits the framebuffer to the canvas
+- `screen.width()` and `screen.height()` return the display size
 
-### screen.render3D(config)
+### screen.render3D (software 3D rasterizer)
 
-Software 3D rasterizer. Config fields:
+This renders a 3D scene to the 2D framebuffer. You pass a config table with vertices, triangles, camera, and optional effects.
+
+Config fields:
 
 - `vertices`: array of `{x, y, z, u?, v?, blend?}`
-- `triangles`: array of `{i0, i1, i2, color?, texture?, texW?, texH?, texture2?, texW2?, texH2?}`
+- `triangles`: array of `{i0, i1, i2, color?, texture?, texW?, texH?}`
 - `camera`: `{x, y, z, rx, ry, fov}`
-- `scale`: internal resolution (default 0.5)
+- `scale`: internal resolution multiplier (default 0.5; lower = faster)
 - `blendWithFb` (boolean): alpha compositing mode
 - `billboards`: array of `{x, y, z, w, h, pw, ph, pixels}`
 - `ambient`: 0-1, minimum brightness (default 0.25)
-- `lightDir`: `{x, y, z}`, directional light
-- `lightColor`: `{r, g, b}`, directional tint
-- `lightIntensity`: 0-1, directional strength
-- `lights`: point lights `{x, y, z, r, g, b, intensity?, radius?}`
-- `fogDensity`: exponential fog
+- `lightDir`: `{x, y, z}`, directional light direction
+- `lightColor`: `{r, g, b}`, directional light tint
+- `lightIntensity`: 0-1, directional light strength
+- `lights`: point lights as `{x, y, z, r, g, b, intensity?, radius?}`
+- `fogDensity`: exponential fog density
 - `fogNear`, `fogFar`: linear fog range
 - `fogColor`: `{r, g, b}`
-- `shadows`: enable shadow projection
+- `shadows`: enable shadow projection (boolean)
 - `shadowPlaneY`: ground plane Y for shadows
 - `shadowAlpha`: 0-255, shadow darkness
 - `shadowColor`: `{r, g, b}`
-- `cullBehind`: cull triangles behind camera
+- `cullBehind`: cull triangles behind camera (boolean)
 
-### math.*
+### math
 
-- Constants: `math.pi`, `math.huge`
-- Trig: `cos`, `sin`, `tan`, `atan2(y,x)`
-- Numeric: `abs`, `floor`, `ceil`, `sqrt`, `min`, `max`, `log`, `exp`, `pow`
-- Random: `random()`, `random(n)`, `random(min, max)`
-- Vectors: `vec2(x,y)`, `vec3(x,y,z)` with `length()`, `add()`, `sub()`, `scale()`, `dot()`, `normalize()`, `distance()`
-- Vector helpers: `vec2Length(v)`, `vec2Add(a,b)`, `vec2Dist(a,b)`
+Constants: `math.pi`, `math.huge`
 
-### string.*
+Trigonometry: `cos`, `sin`, `tan`, `atan2(y, x)`
 
-- `byte(s)`, `char(c)`, `sub(s, i, j)`, `find(s, p)`
-- `lower(s)`, `upper(s)`, `reverse(s)`, `rep(s, n)`
-- `format(fmt, ...)`: printf-style (`%d`, `%s`, `%f`, `%x`, `%c`, `%%`)
+Numeric: `abs`, `floor`, `ceil`, `sqrt`, `min`, `max`, `log`, `exp`, `pow`
 
-### bit.*
+Random: `random()` returns 0-1, `random(n)` returns 1-n, `random(min, max)` returns min-max
 
-- `band(a,b)`, `bor(a,b)`, `bxor(a,b)`, `bnot(a)`, `lshift(a,b)`, `rshift(a,b)`
-- Used by bitwise operators: `&`, `|`, `~`, `<<`, `>>`
+Vectors: `vec2(x, y)` and `vec3(x, y, z)` create vector tables. Both support `length()`, `add()`, `sub()`, `scale()`, `dot()`, `normalize()`, `distance()`.
 
-### table.*
+Helper functions: `vec2Length(v)`, `vec2Add(a, b)`, `vec2Dist(a, b)`
 
-- `insert(t, v)`, `remove(t)`, `concat(t, sep)`, `keys(t)`
-- `sort(t, fn?)`: quicksort with optional comparator
+### string
 
-### keyboard.*
+- `byte(s)` returns the byte value of a character
+- `char(c)` returns the character for a byte value
+- `sub(s, i, j)` returns a substring
+- `find(s, p)` finds a pattern in a string
+- `lower(s)` converts to lowercase
+- `upper(s)` converts to uppercase
+- `reverse(s)` reverses a string
+- `rep(s, n)` repeats a string n times
+- `format(fmt, ...)` does printf-style formatting (`%d`, `%s`, `%f`, `%x`, `%c`, `%%`)
 
-- `isPressed(code)`, `justPressed(code)`, `justReleased(code)`
-- Key codes: `KeyW`, `KeyA`, `KeyS`, `KeyD`, `Space`, `Enter`, `ArrowUp`, etc.
+### bit (bitwise operations)
 
-### mouse.*
+- `band(a, b)` bitwise AND
+- `bor(a, b)` bitwise OR
+- `bxor(a, b)` bitwise XOR
+- `bnot(a)` bitwise NOT
+- `lshift(a, b)` left shift
+- `rshift(a, b)` right shift
 
-- `x()`, `y()`, `left()`, `right()`, `wheel()`, `deltaX()`, `deltaY()`, `locked()`
-- `setPointerLock(enabled)`: enable/disable pointer lock
-- `setPosition(x, y)`: warp cursor
+You can also use the operators directly: `&`, `|`, `~`, `<<`, `>>`
+
+### table
+
+- `insert(t, v)` appends a value to an array
+- `remove(t)` removes and returns the last element
+- `concat(t, sep)` joins array elements into a string
+- `keys(t)` returns an array of all keys
+- `sort(t, fn?)` sorts an array, optionally with a comparator function
+
+### keyboard
+
+- `isPressed(code)` returns true while a key is held down
+- `justPressed(code)` returns true on the frame a key was pressed
+- `justReleased(code)` returns true on the frame a key was released
+
+Key codes: `KeyW`, `KeyA`, `KeyS`, `KeyD`, `Space`, `Enter`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, etc.
+
+### mouse
+
+- `x()` and `y()` return the cursor position
+- `left()` and `right()` return whether mouse buttons are held
 - `wheel()` returns -1, 0, or 1
+- `deltaX()` and `deltaY()` return mouse movement since last frame
+- `locked()` returns whether pointer lock is active
+- `setPointerLock(enabled)` enables or disables pointer lock
+- `setPosition(x, y)` moves the cursor
 
-### system.*
+### system
 
-- `deltaTime()`, `elapsedTime()`, `frameCount()`
-- `fps()`, `fpsLimit(n)`: get/set FPS limit
-- `wait(seconds)`: yield process for N seconds
-- `log(msg)`: log to VM console
-- `cpuSpeed()`, `cpuCores()`, `totalMemory()`
+- `deltaTime()` returns time since last frame in seconds
+- `elapsedTime()` returns total time since VM started
+- `frameCount()` returns total frames rendered
+- `fps()` returns the current FPS
+- `fpsLimit(n)` sets the FPS limit
+- `wait(seconds)` pauses the current process for N seconds
+- `log(msg)` writes a message to the VM console
+- `cpuSpeed()`, `cpuCores()`, `totalMemory()` return hardware info
 
-### file.*, filesystem
+### file (filesystem)
 
-- `read(path)`: read text file
-- `readBinary(path)`: read binary file, returns byte array
-- `readDir(path)`: list directory
-- `write(path, content)`: write text file
-- `exists(path)`: check if file exists
-- `delete(path)`: delete file
-- Paths resolve relative to project root
+- `read(path)` reads a text file and returns its contents
+- `readBinary(path)` reads a binary file and returns a byte array
+- `readDir(path)` lists files in a directory
+- `write(path, content)` writes text to a file
+- `exists(path)` checks if a file exists
+- `delete(path)` deletes a file
 
-### audio.*
+All paths are relative to the project root.
 
-Playback:
-- `load(name, path)`, `unload(name)`
-- `play(name, opts?)`, `pause(name)`, `resume(name)`, `stop(name)`
-- `seek(name, seconds)`, `position(name)`, `isPlaying(name)`
-- `volume(v)`, `stopAll()`
+### audio
 
-Generation:
-- `tone(freq, dur, type, vol)`, `note(name, oct, dur, type, vol)`
-- `genTone(name, sr, freq, dur, type, amp, duty)`, `genNote(name, sr, note, oct, dur, type, amp)`
-- `create(name, sr, ch, len)`, `silence(name)`, `fill(name, ch, val)`
+**Playback:**
+- `load(name, path)` loads an audio file
+- `unload(name)` unloads it
+- `play(name, opts?)` plays it (opts: `{volume, loop}`)
+- `pause(name)`, `resume(name)`, `stop(name)` control playback
+- `seek(name, seconds)` seeks to a position
+- `position(name)` returns current position
+- `isPlaying(name)` returns whether it is playing
+- `volume(v)` sets the global volume
+- `stopAll()` stops all audio
 
-Sample access:
-- `sample(name, ch, idx)`, `setSample(name, ch, idx, val)`
-- `getChannel(name, ch)`, `setChannel(name, ch, samples)`
+**Generation:**
+- `tone(freq, dur, type, vol)` generates a sine/square/saw/triangle tone
+- `note(name, oct, dur, type, vol)` generates a tone by note name
+- `genTone(name, sr, freq, dur, type, amp, duty)` generates a named waveform
+- `genNote(name, sr, note, oct, dur, type, amp)` generates a named note waveform
+- `create(name, sr, ch, len)` creates an empty audio buffer
+- `silence(name)` fills a buffer with silence
+- `fill(name, ch, val)` fills a channel with a value
 
-Manipulation:
-- `reverse(name)`, `trim(name, start, end)`, `normalize(name)`
-- `mix(dest, src, vol)`, `copy(dest, src)`
+**Sample access:**
+- `sample(name, ch, idx)` reads a sample
+- `setSample(name, ch, idx, val)` writes a sample
+- `getChannel(name, ch)` returns all samples for a channel
+- `setChannel(name, ch, samples)` replaces all samples for a channel
 
-Info:
-- `info(name)`, `sampleRate(name)`, `channels(name)`, `duration(name)`, `length(name)`
-- `fft(name, ch, fftSize)`
+**Manipulation:**
+- `reverse(name)` reverses audio
+- `trim(name, start, end)` trims to a range
+- `normalize(name)` normalizes volume
+- `mix(dest, src, vol)` mixes one buffer into another
+- `copy(dest, src)` copies one buffer to another
 
-### debug.*
+**Info:**
+- `info(name)` returns a table with sample rate, channels, duration, length
+- `sampleRate(name)`, `channels(name)`, `duration(name)`, `length(name)`
+- `fft(name, ch, fftSize)` runs an FFT on a channel
 
-- `traceback()`: call stack traceback
-- `wireframe()`: toggle wireframe mode
-- `wireframeStatus()`: query wireframe state
+### debug
 
-### process.*, multitasking
+- `traceback()` prints a call stack trace
+- `wireframe()` toggles wireframe rendering mode
+- `wireframeStatus()` returns whether wireframe mode is on
 
-- `spawn(path)`: read, compile, and run a `.okz` file as a new process. Returns PID.
-- `list()`: array of process descriptions
-- `kill(pid)`: terminate a process
+### process (multitasking)
 
-Processes share CPU time via round-robin scheduler. Each gets `instructionsPerFrame / N` instructions per frame.
+- `spawn(path)` reads, compiles, and runs a `.okz` file as a separate process. Returns the PID.
+- `list()` returns an array of running process descriptions
+- `kill(pid)` terminates a process
 
-### Other globals
+Processes share CPU time with round-robin scheduling. Each process gets `instructionsPerFrame / N` instructions per frame, where N is the number of running processes.
 
-- `print(...)`: log to console
-- `type(v)`: return type string
-- `tostring(v)`, `tonumber(s)`
-- `pairs(t)`, `ipairs(t)`: iterate helpers
-- `pcall(fn, ...)`: protected call, returns `{true, result}` or `{false, errorMessage}`
+### Other global functions
+
+- `print(...)` logs values to the console
+- `type(v)` returns a string like `"number"`, `"string"`, `"table"`, etc.
+- `tostring(v)` converts a value to a string
+- `tonumber(s)` converts a string to a number (returns nil if it can't)
+- `pairs(t)` returns an iterator for all key-value pairs in a table
+- `ipairs(t)` returns an iterator for array elements in order
+- `pcall(fn, ...)` calls a function inside a protected wrapper. Returns `{true, result}` on success or `{false, errorMessage}` on failure.
 
 ## 5. Examples
 
 ### Reading binary files
 
-Use `file.readBinary()` to load custom formats. Write your own parser in Lua:
+Use `file.readBinary()` to load custom formats. Parse the bytes yourself:
 
 ```lua
 local bytes = file.readBinary("assets/sprite.bin")
@@ -312,9 +386,24 @@ while true do
 end
 ```
 
+### Iterating a table
+
+```lua
+local inventory = {
+  { name = "sword"; damage = 10 },
+  { name = "shield"; defense = 5 },
+  { name = "potion"; heal = 20 },
+}
+
+for i, item in ipairs(inventory) do
+  print(i, item.name)
+end
+```
+
 ## 6. Limitations
 
-- No closures/upvalues (nested functions can't capture outer locals)
-- No generic for loop (`for k,v in pairs(t)` is transformed to while)
-- No threading/coroutines (but multi-process via `process.spawn()`)
-- 3D renderer is software-based (slow at full resolution; use `scale < 1.0` for performance)
+- No closures or upvalues. Nested functions cannot capture variables from the enclosing scope.
+- No coroutines. Use `process.spawn()` for concurrent execution instead.
+- The 3D rasterizer is software-based. It is slow at full resolution. Use `scale < 1.0` for better performance.
+- No pattern matching in strings. `string.find` does basic substring search.
+- Tables use reference equality, not value equality. Two tables with identical contents are not considered equal.
