@@ -21,6 +21,7 @@ export type StatementNode =
   | IfNode
   | WhileNode
   | ForNode
+  | ForInNode
   | RepeatNode
   | ReturnNode
   | BreakNode
@@ -80,6 +81,13 @@ export type ForNode = {
   start: ExpressionNode;
   end: ExpressionNode;
   step: ExpressionNode | null;
+  body: BlockNode;
+};
+
+export type ForInNode = {
+  type: 'for_in';
+  variables: string[];
+  iterator: ExpressionNode;
   body: BlockNode;
 };
 

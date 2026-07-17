@@ -56,6 +56,10 @@ export enum Opcode {
   SET_LIST = 54,
   CONCAT = 55,
   LEN = 56,
+  MULTI_RET = 57,
+  FOR_IN = 58,
+  FOR_IN_NEXT = 59,
+  CALL_PROTECTED = 60,
 }
 
 export const OPCODE_NAMES: Record<number, string> = {
@@ -116,4 +120,8 @@ export const OPCODE_NAMES: Record<number, string> = {
   [Opcode.SET_LIST]: 'SET_LIST',
   [Opcode.CONCAT]: 'CONCAT',
   [Opcode.LEN]: 'LEN',
+  [Opcode.MULTI_RET]: 'MULTI_RET',
+  [Opcode.FOR_IN]: 'FOR_IN',
+  [Opcode.FOR_IN_NEXT]: 'FOR_IN_NEXT',
+  [Opcode.CALL_PROTECTED]: 'CALL_PROTECTED',
 };

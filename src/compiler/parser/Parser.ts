@@ -170,31 +170,10 @@ export class Parser {
       const body = this.parseBlock();
       this.consume(TokenType.END, "Expected 'end' after for");
 
-      const keysVar = '_ks';
-      const iVar = '_i';
-      const keyExpr: AST.ExpressionNode = { type: 'index', object: { type: 'variable', name: keysVar }, index: { type: 'variable', name: iVar } };
-      const lenExpr: AST.ExpressionNode = { type: 'unary', operator: '#', operand: { type: 'variable', name: keysVar } };
-      const iPlus1: AST.ExpressionNode = { type: 'binary', operator: '+', left: { type: 'variable', name: iVar }, right: { type: 'literal', value: 1 } };
-      const cond: AST.ExpressionNode = { type: 'binary', operator: '<=', left: { type: 'variable', name: iVar }, right: lenExpr };
-      const bodyStmts: AST.StatementNode[] = [];
-      bodyStmts.push({ type: 'assign', targets: [{ type: 'name', name: firstId }], value: keyExpr });
-      if (secondId) {
-        bodyStmts.push({ type: 'assign', targets: [{ type: 'name', name: secondId }], value: {
-          type: 'index', object: expr, index: { type: 'variable', name: firstId }
-        }});
-      }
-      bodyStmts.push({ type: 'assign', targets: [{ type: 'name', name: iVar }], value: iPlus1 });
-      bodyStmts.push(...body.statements);
+      const variables: string[] = [firstId];
+      if (secondId) variables.push(secondId);
 
-      return {
-        type: 'block', statements: [
-          { type: 'variable_decl', names: [keysVar], initializer: {
-            type: 'call', callee: { type: 'field', object: { type: 'variable', name: 'table' }, field: 'keys' }, args: [expr]
-          }, isLocal: true },
-          { type: 'variable_decl', names: [iVar], initializer: { type: 'literal', value: 1 }, isLocal: true },
-          { type: 'while', condition: cond, body: { type: 'block', statements: bodyStmts } },
-        ]
-      };
+      return { type: 'for_in', variables, iterator: expr, body };
     }
 
     this.consume(TokenType.ASSIGN, "Expected '=' after variable");

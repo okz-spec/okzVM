@@ -573,6 +573,39 @@ export function registerNativeAPI(vm: VMCore, globals: Record<string, Value>): v
 
     globals['type'] = { type: 'native', value: (vm: VMCore) => vm.str((vm.getProcStack().pop()?.type) || 'nil') };
 
+    globals['pairs'] = { type: 'native', value: (vm: VMCore) => {
+      const tbl = vm.getProcStack().pop();
+      if (!tbl || (tbl.type !== 'table' && tbl.type !== 'array')) return vm.nil();
+      const keys = Object.keys(tbl.value).sort((a, b) => {
+        const na = Number(a); const nb = Number(b);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return a.localeCompare(b);
+      });
+      let idx = 0;
+      return { type: 'native', value: (vm: VMCore) => {
+        if (idx >= keys.length) return vm.nil();
+        const key = keys[idx++];
+        const numKey = Number(key);
+        const k = !isNaN(numKey) ? vm.num(numKey) : vm.str(key);
+        const v = tbl.value[key] || vm.nil();
+        return { type: 'array', value: [k, v] };
+      }};
+    }};
+
+    globals['ipairs'] = { type: 'native', value: (vm: VMCore) => {
+      const tbl = vm.getProcStack().pop();
+      if (!tbl || (tbl.type !== 'table' && tbl.type !== 'array')) return vm.nil();
+      let idx = 1;
+      const maxIdx = tbl.type === 'array' ? tbl.value.length : Math.max(...Object.keys(tbl.value).map(Number).filter(n => !isNaN(n)));
+      return { type: 'native', value: (vm: VMCore) => {
+        if (idx > maxIdx) return vm.nil();
+        const i = idx;
+        const v = tbl.value[i] || vm.nil();
+        idx++;
+        return { type: 'array', value: [vm.num(i), v] };
+      }};
+    }};
+
     globals['pcall'] = { type: 'native', value: (vm: VMCore) => {
       const ps = vm.getProcStack();
       const fn = ps.pop();

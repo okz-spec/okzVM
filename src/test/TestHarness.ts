@@ -246,6 +246,62 @@ export class TestHarness {
     this.addDirectNative('tostring', (...args: Value[]) => {
       return { type: 'string', value: this.valueToString(args[0]) };
     });
+
+    // Iterator support for generic for
+    this.addDirectNative('pairs', (...args: Value[]) => {
+      const tbl = args[0];
+      if (!tbl || (tbl.type !== 'table' && tbl.type !== 'array')) return { type: 'nil' };
+      const keys = Object.keys(tbl.value).sort((a, b) => {
+        const na = Number(a); const nb = Number(b);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return a.localeCompare(b);
+      });
+      let idx = 0;
+      const self = this;
+      return {
+        type: 'native', value: (...innerArgs: Value[]) => {
+          if (idx >= keys.length) return { type: 'nil' };
+          const key = keys[idx++];
+          const numKey = Number(key);
+          const k = !isNaN(numKey) ? { type: 'number', value: numKey } : { type: 'string', value: key };
+          const v = tbl.value[key] || { type: 'nil' };
+          return { type: 'array', value: [k, v] };
+        }
+      } as any;
+    });
+
+    this.addDirectNative('ipairs', (...args: Value[]) => {
+      const tbl = args[0];
+      if (!tbl || (tbl.type !== 'table' && tbl.type !== 'array')) return { type: 'nil' };
+      let idx = 1;
+      const maxIdx = tbl.type === 'array' ? tbl.value.length : Math.max(...Object.keys(tbl.value).map(Number).filter(n => !isNaN(n)));
+      return {
+        type: 'native', value: (...innerArgs: Value[]) => {
+          if (idx > maxIdx) return { type: 'nil' };
+          const i = idx;
+          const v = tbl.value[i] || { type: 'nil' };
+          idx++;
+          return { type: 'array', value: [{ type: 'number', value: i }, v] };
+        }
+      } as any;
+    });
+
+    this.addNativeTable('table', {
+      keys: (...args: Value[]) => {
+        const tbl = args[0];
+        if (!tbl || (tbl.type !== 'table' && tbl.type !== 'array')) return { type: 'array', value: [] };
+        const keys = Object.keys(tbl.value);
+        const result: Value[] = [];
+        for (const k of keys) {
+          const n = Number(k);
+          result.push(!isNaN(n) ? { type: 'number', value: n } : { type: 'string', value: k });
+        }
+        return { type: 'array', value: result };
+      },
+      insert: () => ({ type: 'nil' }),
+      remove: () => ({ type: 'nil' }),
+      sort: () => ({ type: 'nil' }),
+    });
   }
 
   execute(maxInstructions: number = 500000): TestReport {
@@ -510,6 +566,7 @@ export class TestHarness {
 
       case 'CALL': {
         const argCount = ops[0];
+        const nvals = ops[1] || 1;
         const fnVal = this.stack[this.stack.length - 1 - argCount];
         if (fnVal.type === 'native') {
           this.stack.splice(this.stack.length - 1 - argCount, 1);
@@ -520,7 +577,7 @@ export class TestHarness {
         } else if (fnVal.type === 'number') {
           const addr = fnVal.value;
           this.stack.splice(this.stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: 'func' });
+          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: 'func', nvals: 1 });
           this.pc = addr;
           this.locals = [];
           this.callDepth++;
@@ -528,7 +585,7 @@ export class TestHarness {
         } else if (fnVal.type === 'function') {
           const func = fnVal.value;
           this.stack.splice(this.stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: func.name });
+          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: func.name, nvals });
           this.pc = func.address;
           this.locals = [];
           this.callDepth++;
@@ -541,7 +598,11 @@ export class TestHarness {
       }
 
       case 'RET': {
-        const retVal = this.stack.length > 0 ? this.pop() : this.nilVal();
+        const returnCount = ops[0] || 1;
+        const returnVals: Value[] = [];
+        for (let i = 0; i < returnCount; i++) {
+          returnVals.unshift(this.pop());
+        }
         const frame = this.frames.pop();
         if (!frame) {
           this.halted = true;
@@ -550,7 +611,7 @@ export class TestHarness {
         this.pc = frame.pc;
         this.locals = frame.locals;
         this.stack = this.stack.slice(0, frame.sp + 1);
-        this.push(retVal);
+        for (const rv of returnVals) this.push(rv);
         this.callDepth--;
         return true;
       }
@@ -643,13 +704,18 @@ export class TestHarness {
       }
 
       case 'MAKE_FUNCTION': {
+        const addrConst = this.getConst(ops[0]);
+        const nameConst = this.getConst(ops[1]);
+        const funcAddr = (addrConst as any)?.value ?? ops[0];
+        const funcName = (nameConst as any)?.value ?? `fn_${ops[0]}`;
+        const funcLocals = ops[2] || 0;
         this.push({
           type: 'function',
           value: {
-            name: `fn_${ops[0]}`,
-            address: ops[0],
-            arity: ops[1] || 0,
-            locals: ops[2] || 0,
+            name: funcName,
+            address: funcAddr,
+            arity: funcLocals,
+            locals: funcLocals,
           },
         });
         return true;
@@ -658,6 +724,90 @@ export class TestHarness {
       case 'HALT': {
         this.halted = true;
         return false;
+      }
+
+      case 'MULTI_RET': {
+        const desired = ops[0] || 1;
+        const nvals = ops[1] || 1;
+        const excess = nvals - desired;
+        if (excess > 0) {
+          this.stack.splice(this.stack.length - excess, excess);
+        }
+        return true;
+      }
+
+      case 'FOR_IN': {
+        const iteratorFn = this.pop();
+        const state = this.pop();
+        const initial = this.pop();
+        this.push(initial);
+        this.push(state);
+        this.push(iteratorFn);
+        return true;
+      }
+
+      case 'FOR_IN_NEXT': {
+        const varCount = ops[0] || 1;
+        const exitAddr = ops[1] || 0;
+        const iteratorFn = this.stack[this.stack.length - 1];
+        const state = this.stack[this.stack.length - 2];
+        const control = this.stack[this.stack.length - 3];
+        if (iteratorFn.type === 'native' || iteratorFn.type === 'function') {
+          this.push(control);
+          this.push(state);
+          this.push(iteratorFn);
+          if (iteratorFn.type === 'native') {
+            const result = iteratorFn.value(...[control, state]);
+            if (result.type === 'nil') {
+              this.stack.splice(this.stack.length - 5, 5);
+              this.pc = exitAddr;
+            } else {
+              this.stack.splice(this.stack.length - 5, 5);
+              this.push(result);
+              for (let i = 1; i < varCount; i++) this.push(this.nilVal());
+            }
+          } else {
+            const removed = this.stack.splice(this.stack.length - 3, 3);
+            this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: 'for_in_next', nvals: varCount });
+            this.pc = iteratorFn.value.address;
+            this.locals = [];
+          }
+        } else {
+          this.stack.splice(this.stack.length - 3, 3);
+          this.pc = exitAddr;
+        }
+        return true;
+      }
+
+      case 'CALL_PROTECTED': {
+        const argCount = ops[0];
+        const fnVal = this.stack[this.stack.length - 1 - argCount];
+        if (fnVal.type === 'native') {
+          try {
+            this.stack.splice(this.stack.length - 1 - argCount, 1);
+            const args = this.stack.splice(this.stack.length - argCount, argCount);
+            const result = fnVal.value(...args);
+            this.push(this.boolVal(true));
+            this.push(result);
+          } catch (e: any) {
+            this.stack.splice(this.stack.length - argCount, argCount);
+            this.push(this.boolVal(false));
+            this.push({ type: 'string', value: e?.message || 'unknown error' });
+          }
+        } else if (fnVal.type === 'function') {
+          const func = fnVal.value;
+          this.stack.splice(this.stack.length - 1 - argCount, argCount + 1);
+          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: func.name, nvals: 1 });
+          this.pc = func.address;
+          this.locals = [];
+          this.callDepth++;
+          this.maxCallDepth = Math.max(this.maxCallDepth, this.callDepth);
+        } else {
+          this.stack.splice(this.stack.length - 1 - argCount, argCount + 1);
+          this.push(this.boolVal(true));
+          this.push(this.nilVal());
+        }
+        return true;
       }
 
       default:
@@ -740,6 +890,10 @@ export class TestHarness {
         case 'FOR_LOOP': case 'TFOR_LOOP': case 'METHOD_CALL': break;
         case 'SET_LIST': simStack = Math.max(0, simStack - 2); break;
         case 'MAKE_FUNCTION': case 'CLOSURE': simStack++; break;
+        case 'MULTI_RET': break;
+        case 'FOR_IN': simStack = Math.max(0, simStack - 3); simStack += 3; break;
+        case 'FOR_IN_NEXT': break;
+        case 'CALL_PROTECTED': { const argCount = ops[0]; simStack = Math.max(0, simStack - argCount); break; }
         default: break;
       }
 

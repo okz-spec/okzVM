@@ -33,6 +33,7 @@ export interface CallFrame {
   sp: number;
   locals: Value[];
   name: string;
+  nvals: number;
 }
 
 export type Value =

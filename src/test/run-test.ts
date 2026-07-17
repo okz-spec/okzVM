@@ -137,6 +137,54 @@ const TEST_PROGRAMS: TestCase[] = [
     `,
     expectStatus: 'halted',
   },
+  {
+    name: 'string-equality',
+    source: `
+      a = "hello"
+      b = "hello"
+      if a == b then
+        print("equal")
+      else
+        print("not equal")
+      end
+    `,
+    expectStatus: 'halted',
+  },
+  {
+    name: 'function-multi-return',
+    source: `
+      function divmod(n, d)
+        return n / d, n % d
+      end
+      q = divmod(17, 5)
+      print(q)
+    `,
+    expectStatus: 'halted',
+  },
+  {
+    name: 'for-in-pairs',
+    source: `
+      t = { a = 1; b = 2; c = 3 }
+      sum = 0
+      for k, v in pairs(t) do
+        sum = sum + v
+      end
+      print(sum)
+    `,
+    expectStatus: 'halted',
+  },
+  {
+    name: 'for-in-ipairs',
+    source: `
+      t = {10, 20, 30}
+      sum = 0
+      for i, v in ipairs(t) do
+        sum = sum + v
+      end
+      print(sum)
+    `,
+    expectStatus: 'halted',
+  },
 ];
 
 function runAllTests(): void {

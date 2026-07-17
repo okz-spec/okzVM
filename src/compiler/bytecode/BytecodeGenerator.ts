@@ -9,6 +9,7 @@ export class BytecodeGenerator {
   private locals: Map<string, number> = new Map();
   private loops: Array<{ breakAddr: number; continueAddr: number; startAddr: number; continuePatches: number[] }> = [];
   private functionEnds: number[] = [];
+  private stringIntern: Map<string, string> = new Map();
 
   public generate(program: AST.ProgramNode): BytecodeChunk {
     this.instructions = [];
@@ -120,6 +121,10 @@ export class BytecodeGenerator {
 
       case 'for':
         this.visitFor(stmt);
+        break;
+
+      case 'for_in':
+        this.visitForIn(stmt);
         break;
 
       case 'repeat':
@@ -382,6 +387,90 @@ export class BytecodeGenerator {
     this.emit('JMP', startAddr);
 
     this.patchJump(exitJmp, this.instructions.length);
+
+    const loop = this.loops.pop()!;
+    if (loop.breakAddr > 0) {
+      this.patchJump(loop.breakAddr, this.instructions.length);
+    }
+
+    this.locals = savedLocals;
+    this.localCount = savedCount;
+  }
+
+  private visitForIn(node: AST.ForInNode): void {
+    const savedLocals = new Map(this.locals);
+    const savedCount = this.localCount;
+
+    // Allocate locals for the iterator function, state, and control
+    const iterLocal = this.localCount++;
+    const stateLocal = this.localCount++;
+    const controlLocal = this.localCount++;
+
+    // Evaluate the iterator expression and store in local
+    this.visitExpression(node.iterator);
+    this.emit('STORE', iterLocal);
+
+    // Initialize state and control to nil
+    this.emit('NEW_NIL');
+    this.emit('STORE', stateLocal);
+    this.emit('NEW_NIL');
+    this.emit('STORE', controlLocal);
+
+    // Allocate loop variable slots
+    const varIndices: number[] = [];
+    for (const _v of node.variables) {
+      varIndices.push(this.localCount++);
+    }
+
+    // Loop start
+    const loopStart = this.instructions.length;
+    this.loops.push({ breakAddr: 0, continueAddr: 0, startAddr: loopStart, continuePatches: [] });
+
+    // Call iterator(state, control)
+    this.emit('LOAD', iterLocal);
+    this.emit('LOAD', stateLocal);
+    this.emit('LOAD', controlLocal);
+    this.emit('CALL', 2);
+
+    // Check if result is nil → exit
+    this.emit('DUP');
+    const exitJmp = this.emit('JZ', 0);
+
+    // Unpack result array: result[1] = new control (first var), result[2..] = remaining vars
+    for (let i = 0; i < node.variables.length; i++) {
+      this.emit('DUP');
+      this.emit('PUSH', this.addConstant({ type: 'number', value: i + 1 }));
+      this.emit('INDEX_GET');
+      this.emit('STORE', varIndices[i]);
+      this.locals.set(node.variables[i], varIndices[i]);
+    }
+
+    // Update control variable (first loop variable becomes new control)
+    if (node.variables.length > 0) {
+      this.emit('LOAD', varIndices[0]);
+      this.emit('STORE', controlLocal);
+    }
+
+    // Pop the result array
+    this.emit('POP');
+
+    // Execute loop body
+    this.visitBlock(node.body);
+
+    // Loop back
+    if (this.loops.length > 0) {
+      const loop = this.loops[this.loops.length - 1];
+      loop.continueAddr = this.instructions.length;
+      for (const jmpAddr of loop.continuePatches) {
+        this.instructions[jmpAddr].operands[0] = loop.continueAddr;
+      }
+    }
+    this.emit('JMP', loopStart);
+
+    // Patch exit jump (after nil check DUP)
+    this.patchJump(exitJmp, this.instructions.length);
+    // Pop the nil result
+    this.emit('POP');
 
     const loop = this.loops.pop()!;
     if (loop.breakAddr > 0) {
@@ -681,6 +770,14 @@ export class BytecodeGenerator {
   }
 
   private addConstant(val: Value): number {
+    if (val.type === 'string') {
+      const interned = this.stringIntern.get(val.value);
+      if (interned !== undefined) {
+        val = { type: 'string', value: interned };
+      } else {
+        this.stringIntern.set(val.value, val.value);
+      }
+    }
     const idx = this.constants.findIndex(c => {
       if (c.type !== val.type) return false;
       if (c.type === 'number') return (c as any).value === (val as any).value;
