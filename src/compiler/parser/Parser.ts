@@ -3,11 +3,13 @@ import * as AST from '../ast/ASTNode';
 
 export class Parser {
   private tokens: Token[] = [];
+  private sourceLines: string[] = [];
   private current: number = 0;
   private errors: string[] = [];
 
-  constructor(tokens: Token[]) {
+  constructor(tokens: Token[], source?: string) {
     this.tokens = tokens;
+    this.sourceLines = source ? source.split('\n') : [];
   }
 
   public parse(): AST.ProgramNode {
@@ -21,16 +23,42 @@ export class Parser {
     return this.errors;
   }
 
+  private formatError(message: string, token: Token): string {
+    const line = token.line;
+    const col = token.column;
+    const sourceLine = this.sourceLines[line - 1] || '';
+    const pointer = ' '.repeat(Math.max(0, col - 1)) + '^';
+    return `${message}\n  at line ${line}, column ${col}\n\n  ${sourceLine}\n  ${pointer}`;
+  }
+
   private parseStatementsUntil(...endTypes: TokenType[]): AST.StatementNode[] {
     const statements: AST.StatementNode[] = [];
 
     while (!this.isAtEnd() && !this.checkAny(endTypes)) {
-      const stmt = this.parseStatement();
-      if (stmt) statements.push(stmt);
+      try {
+        const stmt = this.parseStatement();
+        if (stmt) statements.push(stmt);
+      } catch (e: any) {
+        this.errors.push(e.message || `Unexpected token '${this.peek().lexeme}'`);
+        this.synchronize();
+        break;
+      }
       this.skipNewlines();
     }
 
     return statements;
+  }
+
+  private synchronize(): void {
+    while (!this.isAtEnd()) {
+      if (this.check(TokenType.NEWLINE) || this.check(TokenType.END) ||
+          this.check(TokenType.RETURN) || this.check(TokenType.FUNCTION) ||
+          this.check(TokenType.LOCAL) || this.check(TokenType.IF) ||
+          this.check(TokenType.WHILE) || this.check(TokenType.FOR)) {
+        return;
+      }
+      this.advance();
+    }
   }
 
   private parseStatement(): AST.StatementNode | null {
@@ -515,7 +543,9 @@ export class Parser {
       return this.parseFunctionExpr();
     }
 
-    throw new Error(`Unexpected token: ${this.peek().lexeme} at line ${this.peek().line}`);
+    const token = this.peek();
+    const expected = 'expression (number, string, variable, function call, etc.)';
+    throw new Error(this.formatError(`Expected ${expected}, got '${token.lexeme}'`, token));
   }
 
   private parseTable(): AST.TableNode {
@@ -644,7 +674,7 @@ export class Parser {
   private consume(type: TokenType, message: string): Token {
     if (this.check(type)) return this.advance();
     const token = this.peek();
-    this.errors.push(`${message} at line ${token.line}, column ${token.column} (got '${token.lexeme}')`);
+    this.errors.push(this.formatError(`${message}, got '${token.lexeme}'`, token));
     this.advance();
     return token;
   }

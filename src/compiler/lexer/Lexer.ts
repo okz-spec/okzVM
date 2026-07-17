@@ -2,7 +2,9 @@ import { Token, TokenType, KEYWORDS } from '../types';
 
 export class Lexer {
   private source: string;
+  private sourceLines: string[] = [];
   private tokens: Token[] = [];
+  private errors: string[] = [];
   private start: number = 0;
   private current: number = 0;
   private line: number = 1;
@@ -10,6 +12,15 @@ export class Lexer {
 
   constructor(source: string) {
     this.source = source;
+    this.sourceLines = source.split('\n');
+  }
+
+  public getErrors(): string[] {
+    return this.errors;
+  }
+
+  public getSourceLines(): string[] {
+    return this.sourceLines;
   }
 
   public scanTokens(): Token[] {
@@ -151,7 +162,7 @@ export class Lexer {
         } else if (this.isAlpha(c)) {
           this.identifier();
         } else {
-          // Ignore unknown characters
+          this.errors.push(`Unexpected character '${c}' at line ${this.line}, column ${this.column - 1}`);
         }
         break;
     }
@@ -167,7 +178,7 @@ export class Lexer {
     }
 
     if (this.isAtEnd()) {
-      // Unterminated string
+      this.errors.push(`Unterminated string starting at line ${this.line}`);
       return;
     }
 
