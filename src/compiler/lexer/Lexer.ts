@@ -83,8 +83,15 @@ export class Lexer {
 
       // Dot
       case '.':
-        if (this.match('.')) this.addToken(TokenType.DOT_DOT);
-        else this.addToken(TokenType.DOT);
+        if (this.match('.')) {
+          if (this.match('.')) {
+            this.addToken(TokenType.VARARG);
+          } else {
+            this.addToken(TokenType.DOT_DOT);
+          }
+        } else {
+          this.addToken(TokenType.DOT);
+        }
         break;
 
       // Colon

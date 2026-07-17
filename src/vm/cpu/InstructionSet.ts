@@ -60,6 +60,7 @@ export enum Opcode {
   FOR_IN = 58,
   FOR_IN_NEXT = 59,
   CALL_PROTECTED = 60,
+  VARARG = 61,
 }
 
 export const OPCODE_NAMES: Record<number, string> = {
@@ -124,4 +125,5 @@ export const OPCODE_NAMES: Record<number, string> = {
   [Opcode.FOR_IN]: 'FOR_IN',
   [Opcode.FOR_IN_NEXT]: 'FOR_IN_NEXT',
   [Opcode.CALL_PROTECTED]: 'CALL_PROTECTED',
+  [Opcode.VARARG]: 'VARARG',
 };

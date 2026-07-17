@@ -420,9 +420,49 @@ end
 
 This prints `error: attempt to index a nil value` instead of crashing.
 
+### Closures
+
+Functions can capture variables from their enclosing scope. This is the basis for iterators, callbacks, and many patterns.
+
+```lua
+function makeCounter()
+  local count = 0
+  return function()
+    count = count + 1
+    return count
+  end
+end
+
+local counter = makeCounter()
+print(counter())  -- 1
+print(counter())  -- 2
+print(counter())  -- 3
+```
+
+Each call to `counter()` increments the captured `count` variable.
+
+### Varargs
+
+Functions can accept a variable number of arguments using `...`. The extra arguments are collected into an array.
+
+```lua
+function sum(first, ...)
+  local args = ...
+  local total = first
+  local i = 1
+  while i <= #args do
+    total = total + args[i]
+    i = i + 1
+  end
+  return total
+end
+
+print(sum(10, 20, 30))  -- 60
+print(sum(1, 2, 3, 4, 5))  -- 15
+```
+
 ## 6. Limitations
 
-- No closures or upvalues. Nested functions cannot capture variables from the enclosing scope.
 - No coroutines. Use `process.spawn()` for concurrent execution instead.
 - The 3D rasterizer is software-based. It is slow at full resolution. Use `scale < 1.0` for better performance.
 - No pattern matching in strings. `string.find` does basic substring search.

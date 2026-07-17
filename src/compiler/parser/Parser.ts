@@ -235,19 +235,15 @@ export class Parser {
 
   private parseReturn(): AST.ReturnNode {
     this.consume(TokenType.RETURN, "Expected 'return'");
-    let value: AST.ExpressionNode | null = null;
+    const values: AST.ExpressionNode[] = [];
     if (!this.check(TokenType.END) && !this.checkNewline() && !this.check(TokenType.EOF)) {
-      value = this.parseExpression();
-      if (this.check(TokenType.COMMA)) {
-        const values: AST.ExpressionNode[] = [value];
-        while (this.check(TokenType.COMMA)) {
-          this.advance();
-          values.push(this.parseExpression());
-        }
-        value = { type: 'array', elements: values };
+      values.push(this.parseExpression());
+      while (this.check(TokenType.COMMA)) {
+        this.advance();
+        values.push(this.parseExpression());
       }
     }
-    return { type: 'return', value };
+    return { type: 'return', values };
   }
 
   private parseBreak(): AST.BreakNode {
@@ -524,6 +520,11 @@ export class Parser {
       return { type: 'variable', name };
     }
 
+    if (this.check(TokenType.VARARG)) {
+      this.advance();
+      return { type: 'variable', name: '...' };
+    }
+
     if (this.check(TokenType.LPAREN)) {
       this.advance();
       const expr = this.parseExpression();
@@ -620,10 +621,20 @@ export class Parser {
   private parseParamList(): string[] {
     const params: string[] = [];
     if (!this.check(TokenType.RPAREN)) {
-      params.push(this.consume(TokenType.IDENTIFIER, "Expected parameter name").lexeme);
+      if (this.check(TokenType.VARARG)) {
+        this.advance();
+        params.push('...');
+      } else {
+        params.push(this.consume(TokenType.IDENTIFIER, "Expected parameter name").lexeme);
+      }
       while (this.check(TokenType.COMMA)) {
         this.advance();
-        params.push(this.consume(TokenType.IDENTIFIER, "Expected parameter name").lexeme);
+        if (this.check(TokenType.VARARG)) {
+          this.advance();
+          params.push('...');
+        } else {
+          params.push(this.consume(TokenType.IDENTIFIER, "Expected parameter name").lexeme);
+        }
       }
     }
     return params;

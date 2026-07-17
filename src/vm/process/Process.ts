@@ -103,7 +103,7 @@ export class Process {
         } else if (fnVal.type === 'function') {
           const func = fnVal.value;
           const removed = stack.splice(stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: func.name, nvals, protected: false });
+          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: func.name, nvals, protected: false, funcVal: func });
           this.pc = func.address;
           const args = removed.slice(1);
           if (func.locals > argCount) {
@@ -188,10 +188,63 @@ export class Process {
         const funcAddr = addr?.value ?? 0;
         const funcName = fname?.value ?? '';
         const funcLocals = ops[2] || 0;
-        this.push({ type: 'function', value: { address: funcAddr, locals: funcLocals, name: funcName } });
+        const hasVararg = (ops[3] || 0) !== 0;
+        this.push({ type: 'function', value: { address: funcAddr, locals: funcLocals, name: funcName, hasVararg, upvalues: [] } });
         break;
       }
-      case 42: case 43: case 44: case 45: case 46: case 47: case 48:
+      case 42: { // CLOSURE: capture an upvalue
+        const nameConst = this.chunk.constants[ops[0]] as any;
+        const uvName = nameConst?.value ?? '';
+        const localIndex = ops[1] || 0;
+        const isLocal = (ops[2] || 0) !== 0;
+        const fnVal = this.stack[this.stack.length - 1];
+        if (fnVal.type === 'function') {
+          // Capture a reference to the enclosing frame's locals
+          const enclosingFrame = this.frames.length > 0 ? this.frames[this.frames.length - 1] : null;
+          fnVal.value.upvalues.push({
+            name: uvName,
+            localIndex,
+            isLocal,
+            closed: false,
+            frameRef: enclosingFrame,
+            localRef: enclosingFrame ? enclosingFrame.locals : this.locals,
+          });
+        }
+        break;
+      }
+      case 43: { // GET_UPVALUE
+        const uvIndex = ops[0] || 0;
+        // Read from the current function's upvalue array
+        let found = false;
+        if (this.frames.length > 0) {
+          const frame = this.frames[this.frames.length - 1];
+          if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
+            const uv = frame.funcVal.upvalues[uvIndex];
+            if (uv.localRef) {
+              this.push(uv.localRef[uv.localIndex]);
+              found = true;
+            }
+          }
+        }
+        if (!found) this.push(_nil);
+        break;
+      }
+      case 44: { // SET_UPVALUE
+        const uvIndex = ops[0] || 0;
+        const val = this.pop();
+        if (this.frames.length > 0) {
+          const frame = this.frames[this.frames.length - 1];
+          if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
+            const uv = frame.funcVal.upvalues[uvIndex];
+            if (uv.localRef) {
+              uv.localRef[uv.localIndex] = val;
+            }
+          }
+        }
+        break;
+      }
+      case 45: break; // CLOSE_UPVALUE (no-op for now)
+      case 46: case 47: case 48:
       case 49: case 50: this.push(_nil); break;
       case 51: case 52: case 53: case 54: break;
       case 55: { const b = this.pop(); const a = this.pop(); const sa = a.type === 'string' ? a.value : valueToString(a); const sb = b.type === 'string' ? b.value : valueToString(b); this.push({ type: 'string', value: sa + sb }); break; }
@@ -283,6 +336,20 @@ export class Process {
           stack.splice(stack.length - 1 - argCount, argCount + 1);
           stack.push({ type: 'boolean', value: true });
           stack.push(_nil);
+        }
+        break;
+      }
+      case 61: { // VARARG: collect extra arguments into an array
+        const namedParamCount = ops[0] || 0;
+        const frame = this.frames[this.frames.length - 1];
+        if (frame) {
+          const extraArgs: Value[] = [];
+          for (let i = namedParamCount; i < this.locals.length; i++) {
+            extraArgs.push(this.locals[i]);
+          }
+          this.push({ type: 'array', value: extraArgs });
+        } else {
+          this.push({ type: 'array', value: [] });
         }
         break;
       }

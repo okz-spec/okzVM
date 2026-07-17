@@ -601,7 +601,8 @@ export class TestHarness {
         } else if (fnVal.type === 'function') {
           const func = fnVal.value;
           this.stack.splice(this.stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: func.name, nvals, protected: false });
+          const oldLocals = this.locals;
+          this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: oldLocals, name: func.name, nvals, protected: false, funcVal: func });
           this.pc = func.address;
           this.locals = [];
           this.callDepth++;
@@ -725,6 +726,7 @@ export class TestHarness {
         const funcAddr = (addrConst as any)?.value ?? ops[0];
         const funcName = (nameConst as any)?.value ?? `fn_${ops[0]}`;
         const funcLocals = ops[2] || 0;
+        const hasVararg = (ops[3] || 0) !== 0;
         this.push({
           type: 'function',
           value: {
@@ -732,6 +734,8 @@ export class TestHarness {
             address: funcAddr,
             arity: funcLocals,
             locals: funcLocals,
+            hasVararg,
+            upvalues: [],
           },
         });
         return true;
@@ -822,6 +826,67 @@ export class TestHarness {
           this.stack.splice(this.stack.length - 1 - argCount, argCount + 1);
           this.push(this.boolVal(true));
           this.push(this.nilVal());
+        }
+        return true;
+      }
+
+      case 'VARARG': {
+        const namedParamCount = ops[0] || 0;
+        const extraArgs: Value[] = [];
+        for (let i = namedParamCount; i < this.locals.length; i++) {
+          extraArgs.push(this.locals[i]);
+        }
+        this.push({ type: 'array', value: extraArgs });
+        return true;
+      }
+
+      case 'CLOSURE': {
+        const nameConst = this.getConst(ops[0]);
+        const uvName = (nameConst as any)?.value ?? '';
+        const localIndex = ops[1] || 0;
+        const isLocal = (ops[2] || 0) !== 0;
+        const fnVal = this.stack[this.stack.length - 1];
+        if (fnVal.type === 'function') {
+          const enclosingFrame = this.frames.length > 0 ? this.frames[this.frames.length - 1] : null;
+          fnVal.value.upvalues.push({
+            name: uvName,
+            localIndex,
+            isLocal,
+            closed: false,
+            localRef: enclosingFrame ? enclosingFrame.locals : this.locals,
+          });
+        }
+        return true;
+      }
+
+      case 'GET_UPVALUE': {
+        const uvIndex = ops[0] || 0;
+        let found = false;
+        if (this.frames.length > 0) {
+          const frame = this.frames[this.frames.length - 1];
+          if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
+            const uv = frame.funcVal.upvalues[uvIndex];
+            if (uv.localRef) {
+              this.push(uv.localRef[uv.localIndex]);
+              found = true;
+            }
+          }
+        }
+        if (!found) this.push(this.nilVal());
+        return true;
+      }
+
+      case 'SET_UPVALUE': {
+        const uvIndex = ops[0] || 0;
+        const val = this.pop();
+        if (this.frames.length > 0) {
+          const frame = this.frames[this.frames.length - 1];
+          if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
+            const uv = frame.funcVal.upvalues[uvIndex];
+            if (uv.localRef) {
+              uv.localRef[uv.localIndex] = val;
+            }
+          }
         }
         return true;
       }

@@ -35,6 +35,7 @@ export interface CallFrame {
   name: string;
   nvals: number;
   protected: boolean;
+  funcVal?: FunctionValue;
 }
 
 export type Value =
@@ -53,6 +54,18 @@ export interface FunctionValue {
   address: number;
   arity: number;
   locals: number;
+  hasVararg: boolean;
+  upvalues: Upvalue[];
+}
+
+export interface Upvalue {
+  name: string;
+  localIndex: number;
+  isLocal: boolean;
+  closed: boolean;
+  closedValue?: Value;
+  frameRef?: CallFrame;
+  localRef?: Value[];
 }
 
 export type NativeFunction = (ctx: any, ...args: Value[]) => Value;

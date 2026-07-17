@@ -201,6 +201,53 @@ const TEST_PROGRAMS: TestCase[] = [
     `,
     expectStatus: 'halted',
   },
+  {
+    name: 'multi-return-destructure',
+    source: `
+      function divmod(n, d)
+        return n / d, n % d
+      end
+      local q, r = divmod(17, 5)
+      print(q)
+      print(r)
+    `,
+    expectStatus: 'halted',
+  },
+  {
+    name: 'varargs',
+    source: `
+      function sum(first, ...)
+        local args = ...
+        local total = first
+        local i = 1
+        while i <= #args do
+          total = total + args[i]
+          i = i + 1
+        end
+        return total
+      end
+      print(sum(10, 20, 30))
+      print(sum(1, 2, 3, 4, 5))
+    `,
+    expectStatus: 'halted',
+  },
+  {
+    name: 'closures',
+    source: `
+      function makeCounter()
+        local count = 0
+        return function()
+          count = count + 1
+          return count
+        end
+      end
+      local counter = makeCounter()
+      print(counter())
+      print(counter())
+      print(counter())
+    `,
+    expectStatus: 'halted',
+  },
 ];
 
 function runAllTests(): void {
