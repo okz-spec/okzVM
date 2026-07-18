@@ -95,7 +95,7 @@ If you're doing a big refactor, break it into smaller PRs where possible. Nobody
 * Don't add dependencies unless absolutely necessary. The VM is meant to be lean
 * Don't add built-in parsers for file formats. Developers write their own using `file.readBinary()`
 * Don't add GUI widgets or UI frameworks. The UI is minimal on purpose
-* Don't add closures or coroutines. These require rewriting the compiler and aren't planned
+* Do not add coroutines. That would require rewriting the compiler, and there are no plans to implement it rn.
 * Don't rewrite working systems just to make them look more modern
 * Don't reformat half the codebase in a PR that was supposed to fix one bug
 
