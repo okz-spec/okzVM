@@ -684,3 +684,4 @@ export function registerNativeAPI(vm: VMCore, globals: Record<string, Value>): v
       },
     };
 }
+}
