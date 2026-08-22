@@ -70,7 +70,7 @@ export function registerNativeAPI(vm: VMCore, globals: Record<string, Value>): v
           const vertKeys = Object.keys(rawVerts);
           let maxVertIdx = 0;
           for (const k of vertKeys) { const n = Number(k); if (Number.isInteger(n) && n > maxVertIdx) maxVertIdx = n; }
-          const vertCap = Math.min(maxVertIdx, 50000);
+          const vertCap = Math.min(maxVertIdx, 1550000);
           for (let i = 1; i <= vertCap; i++) {
             const v = rawVerts[i];
             if (!v) continue;
