@@ -21,6 +21,7 @@ export type StatementNode =
   | IfNode
   | WhileNode
   | ForNode
+  | ForInNode
   | RepeatNode
   | ReturnNode
   | BreakNode
@@ -83,6 +84,13 @@ export type ForNode = {
   body: BlockNode;
 };
 
+export type ForInNode = {
+  type: 'for_in';
+  variables: string[];
+  iterator: ExpressionNode;
+  body: BlockNode;
+};
+
 export type RepeatNode = {
   type: 'repeat';
   body: BlockNode;
@@ -91,7 +99,7 @@ export type RepeatNode = {
 
 export type ReturnNode = {
   type: 'return';
-  value: ExpressionNode | null;
+  values: ExpressionNode[];
 };
 
 export type BreakNode = {
@@ -211,7 +219,7 @@ export function astToString(node: ASTNode, indent: number = 0): string {
     case 'for':
       return `${pad}for ${node.variable} in ${astToString(node.start)}..${astToString(node.end)} do...end`;
     case 'return':
-      return `${pad}return ${node.value ? astToString(node.value, indent) : ''}`;
+      return `${pad}return ${node.values.map(v => astToString(v, indent)).join(', ')}`;
     case 'break':
       return `${pad}break`;
     case 'continue':

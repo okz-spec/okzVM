@@ -3,11 +3,13 @@ import * as AST from '../ast/ASTNode';
 
 export class Parser {
   private tokens: Token[] = [];
+  private sourceLines: string[] = [];
   private current: number = 0;
   private errors: string[] = [];
 
-  constructor(tokens: Token[]) {
+  constructor(tokens: Token[], source?: string) {
     this.tokens = tokens;
+    this.sourceLines = source ? source.split('\n') : [];
   }
 
   public parse(): AST.ProgramNode {
@@ -21,16 +23,42 @@ export class Parser {
     return this.errors;
   }
 
+  private formatError(message: string, token: Token): string {
+    const line = token.line;
+    const col = token.column;
+    const sourceLine = this.sourceLines[line - 1] || '';
+    const pointer = ' '.repeat(Math.max(0, col - 1)) + '^';
+    return `${message}\n  at line ${line}, column ${col}\n\n  ${sourceLine}\n  ${pointer}`;
+  }
+
   private parseStatementsUntil(...endTypes: TokenType[]): AST.StatementNode[] {
     const statements: AST.StatementNode[] = [];
 
     while (!this.isAtEnd() && !this.checkAny(endTypes)) {
-      const stmt = this.parseStatement();
-      if (stmt) statements.push(stmt);
+      try {
+        const stmt = this.parseStatement();
+        if (stmt) statements.push(stmt);
+      } catch (e: any) {
+        this.errors.push(e.message || `Unexpected token '${this.peek().lexeme}'`);
+        this.synchronize();
+        break;
+      }
       this.skipNewlines();
     }
 
     return statements;
+  }
+
+  private synchronize(): void {
+    while (!this.isAtEnd()) {
+      if (this.check(TokenType.NEWLINE) || this.check(TokenType.END) ||
+          this.check(TokenType.RETURN) || this.check(TokenType.FUNCTION) ||
+          this.check(TokenType.LOCAL) || this.check(TokenType.IF) ||
+          this.check(TokenType.WHILE) || this.check(TokenType.FOR)) {
+        return;
+      }
+      this.advance();
+    }
   }
 
   private parseStatement(): AST.StatementNode | null {
@@ -170,31 +198,10 @@ export class Parser {
       const body = this.parseBlock();
       this.consume(TokenType.END, "Expected 'end' after for");
 
-      const keysVar = '_ks';
-      const iVar = '_i';
-      const keyExpr: AST.ExpressionNode = { type: 'index', object: { type: 'variable', name: keysVar }, index: { type: 'variable', name: iVar } };
-      const lenExpr: AST.ExpressionNode = { type: 'unary', operator: '#', operand: { type: 'variable', name: keysVar } };
-      const iPlus1: AST.ExpressionNode = { type: 'binary', operator: '+', left: { type: 'variable', name: iVar }, right: { type: 'literal', value: 1 } };
-      const cond: AST.ExpressionNode = { type: 'binary', operator: '<=', left: { type: 'variable', name: iVar }, right: lenExpr };
-      const bodyStmts: AST.StatementNode[] = [];
-      bodyStmts.push({ type: 'assign', targets: [{ type: 'name', name: firstId }], value: keyExpr });
-      if (secondId) {
-        bodyStmts.push({ type: 'assign', targets: [{ type: 'name', name: secondId }], value: {
-          type: 'index', object: expr, index: { type: 'variable', name: firstId }
-        }});
-      }
-      bodyStmts.push({ type: 'assign', targets: [{ type: 'name', name: iVar }], value: iPlus1 });
-      bodyStmts.push(...body.statements);
+      const variables: string[] = [firstId];
+      if (secondId) variables.push(secondId);
 
-      return {
-        type: 'block', statements: [
-          { type: 'variable_decl', names: [keysVar], initializer: {
-            type: 'call', callee: { type: 'field', object: { type: 'variable', name: 'table' }, field: 'keys' }, args: [expr]
-          }, isLocal: true },
-          { type: 'variable_decl', names: [iVar], initializer: { type: 'literal', value: 1 }, isLocal: true },
-          { type: 'while', condition: cond, body: { type: 'block', statements: bodyStmts } },
-        ]
-      };
+      return { type: 'for_in', variables, iterator: expr, body };
     }
 
     this.consume(TokenType.ASSIGN, "Expected '=' after variable");
@@ -228,19 +235,15 @@ export class Parser {
 
   private parseReturn(): AST.ReturnNode {
     this.consume(TokenType.RETURN, "Expected 'return'");
-    let value: AST.ExpressionNode | null = null;
+    const values: AST.ExpressionNode[] = [];
     if (!this.check(TokenType.END) && !this.checkNewline() && !this.check(TokenType.EOF)) {
-      value = this.parseExpression();
-      if (this.check(TokenType.COMMA)) {
-        const values: AST.ExpressionNode[] = [value];
-        while (this.check(TokenType.COMMA)) {
-          this.advance();
-          values.push(this.parseExpression());
-        }
-        value = { type: 'array', elements: values };
+      values.push(this.parseExpression());
+      while (this.check(TokenType.COMMA)) {
+        this.advance();
+        values.push(this.parseExpression());
       }
     }
-    return { type: 'return', value };
+    return { type: 'return', values };
   }
 
   private parseBreak(): AST.BreakNode {
@@ -517,6 +520,11 @@ export class Parser {
       return { type: 'variable', name };
     }
 
+    if (this.check(TokenType.VARARG)) {
+      this.advance();
+      return { type: 'variable', name: '...' };
+    }
+
     if (this.check(TokenType.LPAREN)) {
       this.advance();
       const expr = this.parseExpression();
@@ -536,7 +544,9 @@ export class Parser {
       return this.parseFunctionExpr();
     }
 
-    throw new Error(`Unexpected token: ${this.peek().lexeme} at line ${this.peek().line}`);
+    const token = this.peek();
+    const expected = 'expression (number, string, variable, function call, etc.)';
+    throw new Error(this.formatError(`Expected ${expected}, got '${token.lexeme}'`, token));
   }
 
   private parseTable(): AST.TableNode {
@@ -611,10 +621,20 @@ export class Parser {
   private parseParamList(): string[] {
     const params: string[] = [];
     if (!this.check(TokenType.RPAREN)) {
-      params.push(this.consume(TokenType.IDENTIFIER, "Expected parameter name").lexeme);
+      if (this.check(TokenType.VARARG)) {
+        this.advance();
+        params.push('...');
+      } else {
+        params.push(this.consume(TokenType.IDENTIFIER, "Expected parameter name").lexeme);
+      }
       while (this.check(TokenType.COMMA)) {
         this.advance();
-        params.push(this.consume(TokenType.IDENTIFIER, "Expected parameter name").lexeme);
+        if (this.check(TokenType.VARARG)) {
+          this.advance();
+          params.push('...');
+        } else {
+          params.push(this.consume(TokenType.IDENTIFIER, "Expected parameter name").lexeme);
+        }
       }
     }
     return params;
@@ -665,7 +685,7 @@ export class Parser {
   private consume(type: TokenType, message: string): Token {
     if (this.check(type)) return this.advance();
     const token = this.peek();
-    this.errors.push(`${message} at line ${token.line}, column ${token.column} (got '${token.lexeme}')`);
+    this.errors.push(this.formatError(`${message}, got '${token.lexeme}'`, token));
     this.advance();
     return token;
   }

@@ -82,7 +82,7 @@ export class Renderer3D {
         zBuf[i] = 1e9;
       }
     }
-    const near = 0.1;
+    const near = 0.5;
     const rw2 = rw / 2, rh2 = rh / 2;
     // ===== LIGHTING =====
     const lightCfg = config.lightDir ?? { x: 0.3, y: -0.8, z: 0.5 };
@@ -158,8 +158,11 @@ export class Renderer3D {
       }
       const result: { verts: any[]; uvs: number[]; blends: number[] }[] = [];
       for (let i = 1; i + 1 < inside.length; i++) {
+        const t0 = inside[0], t1 = inside[i], t2 = inside[i+1];
+        const cross = (t1.x - t0.x) * (t2.y - t0.y) - (t1.y - t0.y) * (t2.x - t0.x);
+        if (Math.abs(cross) < 0.001) continue;
         result.push({
-          verts: [inside[0], inside[i], inside[i+1]],
+          verts: [t0, t1, t2],
           uvs: [insideUV[0], insideUV[1], insideUV[i*2], insideUV[i*2+1], insideUV[(i+1)*2], insideUV[(i+1)*2+1]],
           blends: [insideBlend[0], insideBlend[i], insideBlend[i+1]]
         });
@@ -189,14 +192,6 @@ export class Renderer3D {
       let fnz = e1x * e2y - e1y * e2x;
       const fl = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz) || 1;
       fnx /= fl; fny /= fl; fnz /= fl;
-      // Snap face normal to nearest cardinal axis if it's >90% aligned.
-      // This is a total hack but it makes axis-aligned geometry look perfectly flat.
-      // Without this, you get ugly gradient artifacts on what should be solid faces.
-      // Don't tell anyone this is here, it'll ruin the mystique.
-      const ax = Math.abs(fnx), ay = Math.abs(fny), az = Math.abs(fnz);
-      if (ax > 0.9 && ax > ay && ax > az) { fny = 0; fnz = 0; fnx = fnx > 0 ? 1 : -1; }
-      else if (ay > 0.9 && ay > az) { fnx = 0; fnz = 0; fny = fny > 0 ? 1 : -1; }
-      else if (az > 0.9) { fnx = 0; fny = 0; fnz = fnz > 0 ? 1 : -1; }
       const ca = tri.color?.a ?? 255;
       const hasTexture = !!tri.texture;
       const hasTexture2 = !!tri.texture2;
@@ -343,7 +338,7 @@ export class Renderer3D {
           const depth = w0 * p0z + w1 * p1z + w2 * p2z;
           if (depth <= 0) { e0Base += e0dy; e1Base += e1dy; continue; }
           const idx = y * rw + x;
-          if (zBuf[idx] <= depth + 0.0001) { e0Base += e0dy; e1Base += e1dy; continue; }
+          if (zBuf[idx] <= depth + 0.01) { e0Base += e0dy; e1Base += e1dy; continue; }
           if (isOpaque) zBuf[idx] = depth;
           let sr: number, sg: number, sb: number;
           let sa = ca;

@@ -1,0 +1,86 @@
+-- 3D Showcase — demonstrates scene3d library features
+-- Orbiting camera, colored objects, fog, shadows
+
+import scene3d
+
+-- Build the scene once (static geometry)
+local ground = SCENE3D.ground({ size = 10; tileSize = 2 })
+
+local box1 = SCENE3D.box({
+  pos = { 2; 3 };
+  y = 0.75;
+  size = { 1.5; 1.5; 1.5 };
+  color = { 220; 60; 60 };
+})
+
+local box2 = SCENE3D.box({
+  pos = { -3; 2 };
+  y = 1;
+  size = { 1; 2; 1 };
+  color = { 60; 160; 220 };
+})
+
+local box3 = SCENE3D.box({
+  pos = { 0; -3 };
+  y = 0.4;
+  size = { 2; 0.8; 2 };
+  color = { 60; 200; 100 };
+})
+
+local col1 = SCENE3D.column({
+  pos = { 4; -2 };
+  radius = 0.4;
+  height = 3;
+  color = { 180; 170; 150 };
+  sides = 6;
+})
+
+local col2 = SCENE3D.column({
+  pos = { -4; 4 };
+  radius = 0.4;
+  height = 3;
+  color = { 180; 170; 150 };
+  sides = 6;
+})
+
+local scene = SCENE3D.merge({ ground, box1, box2, box3, col1, col2 })
+
+-- Main loop
+while true do
+  local t = system.elapsedTime()
+
+  -- Orbiting camera
+  local angle = t * 0.3
+  local radius = 12
+  local camX = math.cos(angle) * radius
+  local camZ = math.sin(angle) * radius
+  local camY = 6
+
+  -- Camera looks at origin
+  local yaw = math.atan2(-camX, -camZ)
+
+  screen.clear(0, 0, 0)
+  SCENE3D.render({
+    scene = scene;
+    camera = {
+      x = camX;
+      y = camY;
+      z = camZ;
+      rx = -0.4;
+      ry = yaw;
+      fov = 60;
+    };
+    scale = 0.5;
+    ambient = 0.25;
+    lightDir = { x = 0.4; y = -0.7; z = 0.5 };
+    lightIntensity = 0.9;
+    fogNear = 15;
+    fogFar = 30;
+    fogColor = { r = 160; g = 160; b = 160 };
+    shadows = true;
+    shadowPlaneY = 0;
+    shadowAlpha = 50;
+  })
+
+  screen.sync()
+end

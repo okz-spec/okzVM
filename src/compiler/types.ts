@@ -35,6 +35,7 @@ export enum TokenType {
   METHOD = 'METHOD',
   THIS = 'THIS',
   SELF = 'SELF',
+  VARARG = 'VARARG',
 
   // Operators
   PLUS = 'PLUS',

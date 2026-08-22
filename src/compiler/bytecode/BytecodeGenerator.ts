@@ -9,6 +9,9 @@ export class BytecodeGenerator {
   private locals: Map<string, number> = new Map();
   private loops: Array<{ breakAddr: number; continueAddr: number; startAddr: number; continuePatches: number[] }> = [];
   private functionEnds: number[] = [];
+  private stringIntern: Map<string, string> = new Map();
+  private upvalues: Array<{ name: string; localIndex: number; isLocal: boolean }> = [];
+  private enclosingLocals: Map<string, number>[] = [];
 
   public generate(program: AST.ProgramNode): BytecodeChunk {
     this.instructions = [];
@@ -122,6 +125,10 @@ export class BytecodeGenerator {
         this.visitFor(stmt);
         break;
 
+      case 'for_in':
+        this.visitForIn(stmt);
+        break;
+
       case 'repeat':
         this.visitRepeat(stmt);
         break;
@@ -157,24 +164,56 @@ export class BytecodeGenerator {
     const funcAddr = this.instructions.length;
     const savedLocals = new Map(this.locals);
     const savedCount = this.localCount;
+    const savedUpvalues = [...this.upvalues];
+    const savedEnclosing = [...this.enclosingLocals];
+
+    // Push current locals to enclosing scope stack
+    this.enclosingLocals.push(savedLocals);
     this.locals = new Map();
     this.localCount = 0;
+    this.upvalues = [];
 
-    node.params.forEach((p, i) => {
+    const hasVararg = node.params.includes('...');
+    const namedParams = node.params.filter(p => p !== '...');
+    namedParams.forEach((p, i) => {
       this.locals.set(p, i);
       this.localCount = Math.max(this.localCount, i + 1);
     });
 
     this.funcMaxLocals = this.localCount;
+
+    // Emit VARARG if function has varargs
+    if (hasVararg) {
+      this.emit('VARARG', namedParams.length);
+      const varargIdx = this.localCount++;
+      this.locals.set('...', varargIdx);
+      this.emit('STORE', varargIdx);
+    }
+
     this.visitBlock(node.body);
     const funcLocals = this.funcMaxLocals;
+    const funcUpvalues = [...this.upvalues];
 
     this.emit('RET');
     this.patchJump(skipJmpAddr, this.instructions.length);
 
+    // Restore state
+    this.locals = savedLocals;
+    this.localCount = savedCount;
+    this.upvalues = savedUpvalues;
+    this.enclosingLocals = savedEnclosing;
+
     const addrConst = this.addConstant({ type: 'number', value: funcAddr });
     const nameConst = this.addConstant({ type: 'string', value: node.name || '' });
-    this.emit('MAKE_FUNCTION', addrConst, nameConst, funcLocals);
+    this.emit('MAKE_FUNCTION', addrConst, nameConst, funcLocals, hasVararg ? 1 : 0);
+
+    // If there are upvalues, emit CLOSURE to capture them
+    if (funcUpvalues.length > 0) {
+      for (const uv of funcUpvalues) {
+        this.emit('CLOSURE', this.addConstant({ type: 'string', value: uv.name }), uv.localIndex, uv.isLocal ? 1 : 0);
+      }
+    }
+
     if (node.name) {
       if (this.locals.has(node.name)) {
         this.emit('STORE', this.locals.get(node.name)!);
@@ -186,6 +225,33 @@ export class BytecodeGenerator {
 
   private visitVariableDecl(node: AST.VariableDeclNode): void {
     if (node.names.length > 1 && node.initializer) {
+      // Check if this is a function call (multi-return case)
+      if (node.initializer.type === 'call') {
+        const callNode = node.initializer as AST.CallNode;
+        const isPcall = callNode.callee.type === 'variable' && callNode.callee.name === 'pcall';
+        this.visitExpression(callNode.callee);
+        callNode.args.forEach(arg => this.visitExpression(arg));
+        if (isPcall) {
+          this.emit('CALL_PROTECTED', callNode.args.length);
+        } else {
+          this.emit('CALL', callNode.args.length, node.names.length);
+        }
+        // Stack now has return values: [val1, val2, ...]
+        // Store them in reverse order (last return value is on top)
+        for (let i = node.names.length - 1; i >= 0; i--) {
+          const name = node.names[i];
+          if (node.isLocal) {
+            const idx = this.localCount++;
+            this.locals.set(name, idx);
+            this.emit('STORE', idx);
+          } else {
+            this.emit('STORE_GLOBAL', this.addGlobal(name));
+          }
+        }
+        return;
+      }
+
+      // Array/table unpacking case
       this.visitExpression(node.initializer);
       for (let i = 0; i < node.names.length; i++) {
         const name = node.names[i];
@@ -250,7 +316,27 @@ export class BytecodeGenerator {
         if (this.locals.has(target.name)) {
           this.emit('STORE', this.locals.get(target.name)!);
         } else {
-          this.emit('STORE_GLOBAL', this.addGlobal(target.name));
+          // Check enclosing scopes for upvalues
+          let foundUpvalue = false;
+          for (let i = this.enclosingLocals.length - 1; i >= 0; i--) {
+            const enclosing = this.enclosingLocals[i];
+            if (enclosing.has(target.name)) {
+              const localIndex = enclosing.get(target.name)!;
+              const uvIndex = this.upvalues.findIndex(uv => uv.name === target.name && uv.localIndex === localIndex);
+              if (uvIndex >= 0) {
+                this.emit('SET_UPVALUE', uvIndex);
+              } else {
+                const newIdx = this.upvalues.length;
+                this.upvalues.push({ name: target.name, localIndex, isLocal: true });
+                this.emit('SET_UPVALUE', newIdx);
+              }
+              foundUpvalue = true;
+              break;
+            }
+          }
+          if (!foundUpvalue) {
+            this.emit('STORE_GLOBAL', this.addGlobal(target.name));
+          }
         }
       }
     }
@@ -392,6 +478,90 @@ export class BytecodeGenerator {
     this.localCount = savedCount;
   }
 
+  private visitForIn(node: AST.ForInNode): void {
+    const savedLocals = new Map(this.locals);
+    const savedCount = this.localCount;
+
+    // Allocate locals for the iterator function, state, and control
+    const iterLocal = this.localCount++;
+    const stateLocal = this.localCount++;
+    const controlLocal = this.localCount++;
+
+    // Evaluate the iterator expression and store in local
+    this.visitExpression(node.iterator);
+    this.emit('STORE', iterLocal);
+
+    // Initialize state and control to nil
+    this.emit('NEW_NIL');
+    this.emit('STORE', stateLocal);
+    this.emit('NEW_NIL');
+    this.emit('STORE', controlLocal);
+
+    // Allocate loop variable slots
+    const varIndices: number[] = [];
+    for (const _v of node.variables) {
+      varIndices.push(this.localCount++);
+    }
+
+    // Loop start
+    const loopStart = this.instructions.length;
+    this.loops.push({ breakAddr: 0, continueAddr: 0, startAddr: loopStart, continuePatches: [] });
+
+    // Call iterator(state, control)
+    this.emit('LOAD', iterLocal);
+    this.emit('LOAD', stateLocal);
+    this.emit('LOAD', controlLocal);
+    this.emit('CALL', 2);
+
+    // Check if result is nil → exit
+    this.emit('DUP');
+    const exitJmp = this.emit('JZ', 0);
+
+    // Unpack result array: result[1] = new control (first var), result[2..] = remaining vars
+    for (let i = 0; i < node.variables.length; i++) {
+      this.emit('DUP');
+      this.emit('PUSH', this.addConstant({ type: 'number', value: i + 1 }));
+      this.emit('INDEX_GET');
+      this.emit('STORE', varIndices[i]);
+      this.locals.set(node.variables[i], varIndices[i]);
+    }
+
+    // Update control variable (first loop variable becomes new control)
+    if (node.variables.length > 0) {
+      this.emit('LOAD', varIndices[0]);
+      this.emit('STORE', controlLocal);
+    }
+
+    // Pop the result array
+    this.emit('POP');
+
+    // Execute loop body
+    this.visitBlock(node.body);
+
+    // Loop back
+    if (this.loops.length > 0) {
+      const loop = this.loops[this.loops.length - 1];
+      loop.continueAddr = this.instructions.length;
+      for (const jmpAddr of loop.continuePatches) {
+        this.instructions[jmpAddr].operands[0] = loop.continueAddr;
+      }
+    }
+    this.emit('JMP', loopStart);
+
+    // Patch exit jump (after nil check DUP)
+    this.patchJump(exitJmp, this.instructions.length);
+    // Pop the nil result
+    this.emit('POP');
+
+    const loop = this.loops.pop()!;
+    if (loop.breakAddr > 0) {
+      this.patchJump(loop.breakAddr, this.instructions.length);
+    }
+
+    this.locals = savedLocals;
+    this.localCount = savedCount;
+  }
+
   private visitRepeat(node: AST.RepeatNode): void {
     const startAddr = this.instructions.length;
     this.loops.push({ breakAddr: 0, continueAddr: startAddr, startAddr, continuePatches: [] });
@@ -407,12 +577,15 @@ export class BytecodeGenerator {
   }
 
   private visitReturn(node: AST.ReturnNode): void {
-    if (node.value) {
-      this.visitExpression(node.value);
+    if (node.values.length > 0) {
+      for (const val of node.values) {
+        this.visitExpression(val);
+      }
+      this.emit('RET', node.values.length);
     } else {
       this.emit('NEW_NIL');
+      this.emit('RET', 1);
     }
-    this.emit('RET');
   }
 
   private visitBreak(): void {
@@ -486,11 +659,30 @@ export class BytecodeGenerator {
   }
 
   private visitVariable(node: AST.VariableNode): void {
+    // Check current scope first
     if (this.locals.has(node.name)) {
       this.emit('LOAD', this.locals.get(node.name)!);
-    } else {
-      this.emit('LOAD_GLOBAL', this.addGlobal(node.name));
+      return;
     }
+
+    // Check enclosing scopes for upvalues
+    for (let i = this.enclosingLocals.length - 1; i >= 0; i--) {
+      const enclosing = this.enclosingLocals[i];
+      if (enclosing.has(node.name)) {
+        // Found in enclosing scope - add as upvalue
+        const localIndex = enclosing.get(node.name)!;
+        let uvIndex = this.upvalues.findIndex(uv => uv.name === node.name && uv.localIndex === localIndex && uv.isLocal);
+        if (uvIndex < 0) {
+          uvIndex = this.upvalues.length;
+          this.upvalues.push({ name: node.name, localIndex, isLocal: true });
+        }
+        this.emit('GET_UPVALUE', uvIndex);
+        return;
+      }
+    }
+
+    // Not found anywhere - treat as global
+    this.emit('LOAD_GLOBAL', this.addGlobal(node.name));
   }
 
   private visitBinary(node: AST.BinaryNode): void {
@@ -581,9 +773,14 @@ export class BytecodeGenerator {
   }
 
   private visitCall(node: AST.CallNode): void {
+    const isPcall = node.callee.type === 'variable' && node.callee.name === 'pcall';
     this.visitExpression(node.callee);
     node.args.forEach(arg => this.visitExpression(arg));
-    this.emit('CALL', node.args.length);
+    if (isPcall) {
+      this.emit('CALL_PROTECTED', node.args.length);
+    } else {
+      this.emit('CALL', node.args.length);
+    }
   }
 
   private visitMethodCall(node: AST.MethodCallNode): void {
@@ -645,27 +842,55 @@ export class BytecodeGenerator {
     const funcAddr = this.instructions.length;
     const savedLocals = new Map(this.locals);
     const savedCount = this.localCount;
+    const savedUpvalues = [...this.upvalues];
+    const savedEnclosing = [...this.enclosingLocals];
+
+    // Push current locals to enclosing scope stack
+    this.enclosingLocals.push(savedLocals);
     this.locals = new Map();
     this.localCount = 0;
+    this.upvalues = [];
 
-    node.params.forEach((p, i) => {
+    const hasVararg = node.params.includes('...');
+    const namedParams = node.params.filter(p => p !== '...');
+    namedParams.forEach((p, i) => {
       this.locals.set(p, i);
       this.localCount = Math.max(this.localCount, i + 1);
     });
 
     this.funcMaxLocals = this.localCount;
+
+    // Emit VARARG if function has varargs
+    if (hasVararg) {
+      this.emit('VARARG', namedParams.length);
+      const varargIdx = this.localCount++;
+      this.locals.set('...', varargIdx);
+      this.emit('STORE', varargIdx);
+    }
+
     this.visitBlock(node.body);
     const funcLocals = this.funcMaxLocals;
+    const funcUpvalues = [...this.upvalues];
 
     this.emit('RET');
     this.patchJump(skipJmpAddr, this.instructions.length);
 
+    // Restore state
     this.locals = savedLocals;
     this.localCount = savedCount;
+    this.upvalues = savedUpvalues;
+    this.enclosingLocals = savedEnclosing;
 
     const addrConst = this.addConstant({ type: 'number', value: funcAddr });
     const nameConst = this.addConstant({ type: 'string', value: '' });
-    this.emit('MAKE_FUNCTION', addrConst, nameConst, funcLocals);
+    this.emit('MAKE_FUNCTION', addrConst, nameConst, funcLocals, hasVararg ? 1 : 0);
+
+    // If there are upvalues, emit CLOSURE to capture them
+    if (funcUpvalues.length > 0) {
+      for (const uv of funcUpvalues) {
+        this.emit('CLOSURE', this.addConstant({ type: 'string', value: uv.name }), uv.localIndex, uv.isLocal ? 1 : 0);
+      }
+    }
   }
 
   private emit(opcode: string, ...operands: number[]): number {
@@ -681,6 +906,14 @@ export class BytecodeGenerator {
   }
 
   private addConstant(val: Value): number {
+    if (val.type === 'string') {
+      const interned = this.stringIntern.get(val.value);
+      if (interned !== undefined) {
+        val = { type: 'string', value: interned };
+      } else {
+        this.stringIntern.set(val.value, val.value);
+      }
+    }
     const idx = this.constants.findIndex(c => {
       if (c.type !== val.type) return false;
       if (c.type === 'number') return (c as any).value === (val as any).value;

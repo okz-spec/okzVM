@@ -1,4 +1,4 @@
-import { Value, BytecodeChunk, CallFrame, ProcessState, StepResult } from '../types';
+import { Value, BytecodeChunk, CallFrame, ProcessState, StepResult, Upvalue } from '../types';
 import { _opcodeMap, numVal, truthy, valuesEqual, valueToString } from '../interpreter/ops';
 
 const _nil: Value = { type: 'nil' };
@@ -28,6 +28,7 @@ export class Process {
   public created: number = Date.now();
   public cpuTime: number = 0;
   public sleepUntil: number = 0;
+  public openUpvalues: Upvalue[] = [];
 
   constructor(id: number, name: string, chunk: BytecodeChunk) {
     this.id = id;
@@ -78,14 +79,8 @@ export class Process {
       case 19: { const cond = this.pop(); if (!truthy(cond)) this.pc = ops[0]; break; }
       case 20: { const cond = this.pop(); if (truthy(cond)) this.pc = ops[0]; break; }
       case 21: {
-        // CALL opcode. This is the ugliest case in the entire interpreter.
-        // Three different function types (native, raw address, function object),
-        // each with different stack surgery. The native case is especially gnarly:
-        // we splice out args, call the native, push the result, then clean up
-        // any excess return values. The while loop at lines 86-90 exists because
-        // some native functions return more than one value and we need to trim.
-        // If you're debugging a crash, check this case first.
         const argCount = ops[0];
+        const nvals = ops[1] || 1;
         const stack = this.stack;
         const fnIdx = stack.length - 1 - argCount;
         if (fnIdx < 0) { this.push(_nil); break; }
@@ -103,13 +98,13 @@ export class Process {
         } else if (fnVal.type === 'number') {
           const addr = fnVal.value;
           const removed = stack.splice(stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: 'func' });
+          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: 'func', nvals: 1, protected: false });
           this.pc = addr;
           this.locals = removed.slice(1);
         } else if (fnVal.type === 'function') {
           const func = fnVal.value;
           const removed = stack.splice(stack.length - 1 - argCount, argCount + 1);
-          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: func.name });
+          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: func.name, nvals, protected: false, funcVal: func });
           this.pc = func.address;
           const args = removed.slice(1);
           if (func.locals > argCount) {
@@ -123,13 +118,31 @@ export class Process {
         break;
       }
       case 22: {
-        const retVal = this.stack.length > 0 ? this.stack.pop()! : _nil;
+        const returnCount = ops[0] || 1;
+        const returnVals: Value[] = [];
+        for (let i = 0; i < returnCount; i++) {
+          returnVals.unshift(this.pop());
+        }
         const frame = this.frames.pop();
         if (!frame) { this.halted = true; return 'halt'; }
+
+        // Close all open upvalues referencing this frame's locals
+        const frameLocals = frame.locals;
+        for (let i = this.openUpvalues.length - 1; i >= 0; i--) {
+          const uv = this.openUpvalues[i];
+          if (uv.localRef === frameLocals && !uv.closed) {
+            uv.closedValue = uv.localRef[uv.localIndex];
+            uv.closed = true;
+            uv.localRef = undefined;
+            uv.frameRef = undefined;
+            this.openUpvalues.splice(i, 1);
+          }
+        }
+
         this.pc = frame.pc;
         this.locals = frame.locals;
-        this.stack.length = Math.max(0, frame.sp + 1);
-        this.stack.push(retVal);
+        this.stack.length = frame.sp + 1;
+        for (const rv of returnVals) this.push(rv);
         break;
       }
       case 23: this.push(this.getLocal(ops[0])); break;
@@ -190,21 +203,179 @@ export class Process {
         const funcAddr = addr?.value ?? 0;
         const funcName = fname?.value ?? '';
         const funcLocals = ops[2] || 0;
-        this.push({ type: 'function', value: { address: funcAddr, locals: funcLocals, name: funcName } });
+        const hasVararg = (ops[3] || 0) !== 0;
+        this.push({ type: 'function', value: { address: funcAddr, locals: funcLocals, name: funcName, hasVararg, upvalues: [] } });
         break;
       }
-      // Cases 42-54: closures, upvalues, classes, object ops, loop ops.
-      // All stubbed to push nil. This is where the language goes to die.
-      // If you need closures, this is the first place to look. Good luck.
-      case 42: case 43: case 44: case 45: case 46: case 47: case 48:
-      case 49: case 50: case 51: case 52: case 53: case 54: this.push(_nil); break;
+      case 42: { // CLOSURE: capture an upvalue
+        const nameConst = this.chunk.constants[ops[0]] as any;
+        const uvName = nameConst?.value ?? '';
+        const localIndex = ops[1] || 0;
+        const isLocal = (ops[2] || 0) !== 0;
+        const fnVal = this.stack[this.stack.length - 1];
+        if (fnVal.type === 'function') {
+          // Capture a reference to the enclosing frame's locals
+          const enclosingFrame = this.frames.length > 0 ? this.frames[this.frames.length - 1] : null;
+          const uv: Upvalue = {
+            name: uvName,
+            localIndex,
+            isLocal,
+            closed: false,
+            frameRef: enclosingFrame,
+            localRef: enclosingFrame ? enclosingFrame.locals : this.locals,
+          };
+          fnVal.value.upvalues.push(uv);
+          this.openUpvalues.push(uv);
+        }
+        break;
+      }
+      case 43: { // GET_UPVALUE
+        const uvIndex = ops[0] || 0;
+        let found = false;
+        if (this.frames.length > 0) {
+          const frame = this.frames[this.frames.length - 1];
+          if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
+            const uv = frame.funcVal.upvalues[uvIndex];
+            if (uv.closed) {
+              this.push(uv.closedValue ?? _nil);
+              found = true;
+            } else if (uv.localRef) {
+              this.push(uv.localRef[uv.localIndex]);
+              found = true;
+            }
+          }
+        }
+        if (!found) this.push(_nil);
+        break;
+      }
+      case 44: { // SET_UPVALUE
+        const uvIndex = ops[0] || 0;
+        const val = this.pop();
+        if (this.frames.length > 0) {
+          const frame = this.frames[this.frames.length - 1];
+          if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
+            const uv = frame.funcVal.upvalues[uvIndex];
+            if (uv.closed) {
+              uv.closedValue = val;
+            } else if (uv.localRef) {
+              uv.localRef[uv.localIndex] = val;
+            }
+          }
+        }
+        break;
+      }
+      case 45: { // CLOSE_UPVALUE: close a specific upvalue on the current frame
+        const uvIndex = ops[0] || 0;
+        if (this.frames.length > 0) {
+          const frame = this.frames[this.frames.length - 1];
+          if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
+            const uv = frame.funcVal.upvalues[uvIndex];
+            if (!uv.closed && uv.localRef) {
+              uv.closedValue = uv.localRef[uv.localIndex];
+              uv.closed = true;
+              uv.localRef = undefined;
+              uv.frameRef = undefined;
+              const idx = this.openUpvalues.indexOf(uv);
+              if (idx >= 0) this.openUpvalues.splice(idx, 1);
+            }
+          }
+        }
+        break;
+      }
+      case 46: case 47: case 48:
+      case 49: case 50: this.push(_nil); break; // CLASS/NEW_OBJECT/LOAD_FIELD/STORE_FIELD/METHOD_CALL — stubs, OOP not implemented
+      case 51: case 52: case 53: case 54: break; // FOR_PREP/FOR_LOOP/TFOR_LOOP/SET_LIST — unused
       case 55: { const b = this.pop(); const a = this.pop(); const sa = a.type === 'string' ? a.value : valueToString(a); const sb = b.type === 'string' ? b.value : valueToString(b); this.push({ type: 'string', value: sa + sb }); break; }
       case 56: { const v = this.pop(); if (v.type === 'string') this.push({ type: 'number', value: v.value.length }); else if (v.type === 'array') this.push({ type: 'number', value: Object.keys(v.value).length }); else if (v.type === 'table') this.push({ type: 'number', value: Object.keys(v.value).length }); else this.push({ type: 'number', value: 0 }); break; }
+      case 60: { // CALL_PROTECTED: call with error protection
+        const argCount = ops[0];
+        const handlerAddr = ops[1];
+        const stack = this.stack;
+        const fnIdx = stack.length - 1 - argCount;
+        if (fnIdx < 0) { this.push(_nil); break; }
+        const fnVal = stack[fnIdx];
+        if (fnVal.type === 'native') {
+          try {
+            const lenBefore = stack.length;
+            stack.splice(stack.length - 1 - argCount, 1);
+            const result = fnVal.value(this.context || this);
+            stack.push(result);
+            while (stack.length > lenBefore - argCount) {
+              const idx = stack.length - 2;
+              if (idx >= 0) stack.splice(idx, 1);
+              else break;
+            }
+          } catch (e: any) {
+            stack.splice(stack.length - argCount, argCount);
+            stack.push({ type: 'boolean', value: false });
+            stack.push({ type: 'string', value: e?.message || 'unknown error' });
+          }
+        } else if (fnVal.type === 'function') {
+          const func = fnVal.value;
+          const removed = stack.splice(stack.length - 1 - argCount, argCount + 1);
+          this.frames.push({ pc: this.pc, sp: stack.length - 1, locals: this.locals, name: func.name, nvals: 1, protected: true });
+          this.pc = func.address;
+          const args = removed.slice(1);
+          if (func.locals > argCount) {
+            for (let i = argCount; i < func.locals; i++) args.push(_nil);
+          }
+          this.locals = args;
+        } else {
+          stack.splice(stack.length - 1 - argCount, argCount + 1);
+          stack.push({ type: 'boolean', value: true });
+          stack.push(_nil);
+        }
+        break;
+      }
+      case 61: { // VARARG: collect extra arguments into an array
+        const namedParamCount = ops[0] || 0;
+        const frame = this.frames[this.frames.length - 1];
+        if (frame) {
+          const extraArgs: Value[] = [];
+          for (let i = namedParamCount; i < this.locals.length; i++) {
+            extraArgs.push(this.locals[i]);
+          }
+          this.push({ type: 'array', value: extraArgs });
+        } else {
+          this.push({ type: 'array', value: [] });
+        }
+        break;
+      }
       case 32: return 'halt';
       default: return 'halt';
     }
     } catch (e: any) {
       const msg = e?.message || 'unknown error';
+      // Check for a protected frame in the call stack
+      let unwindIdx = -1;
+      for (let i = this.frames.length - 1; i >= 0; i--) {
+        if (this.frames[i].protected) { unwindIdx = i; break; }
+      }
+      if (unwindIdx >= 0) {
+        // Close upvalues for all frames being unwound
+        for (let f = this.frames.length - 1; f >= unwindIdx; f--) {
+          const frameLocals = this.frames[f].locals;
+          for (let i = this.openUpvalues.length - 1; i >= 0; i--) {
+            const uv = this.openUpvalues[i];
+            if (uv.localRef === frameLocals && !uv.closed) {
+              uv.closedValue = uv.localRef[uv.localIndex];
+              uv.closed = true;
+              uv.localRef = undefined;
+              uv.frameRef = undefined;
+              this.openUpvalues.splice(i, 1);
+            }
+          }
+        }
+        const frame = this.frames[unwindIdx];
+        // Unwind: drop all frames above the protected one
+        this.frames.length = unwindIdx;
+        this.pc = frame.pc;
+        this.locals = frame.locals;
+        this.stack.length = frame.sp + 1;
+        this.push({ type: 'boolean', value: false });
+        this.push({ type: 'string', value: msg });
+        return 'continue';
+      }
       this.logFn?.(`Runtime error at line ${line}: ${msg}`, 'error');
       this.halted = true;
       return 'halt';
@@ -240,6 +411,7 @@ export class Process {
     this.stack = [];
     this.locals = [];
     this.frames = [];
+    this.openUpvalues = [];
     this.halted = true;
     this.files.clear();
   }

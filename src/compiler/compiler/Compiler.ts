@@ -23,6 +23,12 @@ export class Compiler {
       const tokens = lexer.scanTokens();
       this.logFn(`Lexer: ${tokens.length} tokens generated`, 'info');
 
+      const lexerErrors = lexer.getErrors();
+      if (lexerErrors.length > 0) {
+        lexerErrors.forEach(e => this.logFn(`Lexer error: ${e}`, 'error'));
+        return null;
+      }
+
       if (tokens.length === 1) {
         this.logFn('Empty source file', 'warn');
         return {
@@ -33,7 +39,7 @@ export class Compiler {
       }
 
       this.logFn('Parsing...', 'info');
-      const parser = new Parser(tokens);
+      const parser = new Parser(tokens, source);
       const ast = parser.parse();
       const errors = parser.getErrors();
 
@@ -79,7 +85,7 @@ export class Compiler {
               const moduleLexer = new Lexer(code);
               const moduleTokens = moduleLexer.scanTokens();
               if (moduleTokens.length > 1) {
-                const moduleParser = new Parser(moduleTokens);
+                const moduleParser = new Parser(moduleTokens, code);
                 const moduleAst = moduleParser.parse();
                 if (moduleAst && !moduleParser.getErrors().length) {
                   this.logFn(`Imported module: ${moduleName} (${moduleAst.body.length} statements)`, 'info');
