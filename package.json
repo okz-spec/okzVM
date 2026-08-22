@@ -1,6 +1,6 @@
 {
   "name": "okzvm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "okzVM - A lightweight stack-based virtual machine with a Lua-inspired scripting language.",
   "main": "dist/main/main/index.js",
   "scripts": {
