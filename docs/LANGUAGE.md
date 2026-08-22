@@ -54,6 +54,10 @@ end
 -- tables (like dictionaries or objects)
 local player = { x = 0; y = 0; hp = 100 }
 
+-- array literals
+local numbers = [1, 2, 3, 4, 5]
+print(#numbers)  -- 5
+
 -- numeric for loop
 for i = 1, 10 do
   print(i)
@@ -62,6 +66,22 @@ end
 -- while loop
 while condition do
   -- body
+end
+
+-- repeat/until loop
+repeat
+  -- body (runs at least once)
+until condition
+
+-- break exits the innermost loop
+for i = 1, 100 do
+  if i == 5 then break end
+end
+
+-- continue skips to the next iteration
+for i = 1, 10 do
+  if i % 2 == 0 then continue end
+  print(i)  -- prints only odd numbers
 end
 
 -- if/elseif/else
@@ -183,7 +203,14 @@ Numeric: `abs`, `floor`, `ceil`, `sqrt`, `min`, `max`, `log`, `exp`, `pow`
 
 Random: `random()` returns 0-1, `random(n)` returns 1-n, `random(min, max)` returns min-max
 
-Vectors: `vec2(x, y)` and `vec3(x, y, z)` create vector tables. Both support `length()`, `add()`, `sub()`, `scale()`, `dot()`, `normalize()`, `distance()`.
+Vectors: `vec2(x, y)` and `vec3(x, y, z)` create vector tables. Both support `length()`, `add()`, `sub()`, `scale()`, `dot()`, `normalize()`, `distance()`. vec3 also supports `cross()`.
+
+```lua
+local v = math.vec3(1, 2, 3)
+print(v:length())       -- 3.74...
+local w = v:normalize()
+local d = v:distance(math.vec3(4, 5, 6))
+```
 
 Helper functions: `vec2Length(v)`, `vec2Add(a, b)`, `vec2Dist(a, b)`
 
@@ -263,7 +290,7 @@ All paths are relative to the project root.
 Playback:
 - `load(name, path)` loads an audio file
 - `unload(name)` unloads it
-- `play(name, opts?)` plays it (opts: `{volume, loop}`)
+- `play(name, opts?)` plays it (opts: `{volume, loop, rate, offset}`)
 - `pause(name)`, `resume(name)`, `stop(name)` control playback
 - `seek(name, seconds)` seeks to a position
 - `position(name)` returns current position
@@ -294,7 +321,7 @@ Manipulation:
 - `copy(dest, src)` copies one buffer to another
 
 Info:
-- `info(name)` returns a table with sample rate, channels, duration, length
+- `info(name)` returns a table with sample rate, channels, samples, duration
 - `sampleRate(name)`, `channels(name)`, `duration(name)`, `length(name)`
 - `fft(name, ch, fftSize)` runs an FFT on a channel
 
@@ -320,7 +347,7 @@ Processes share CPU time with round-robin scheduling. Each process gets `instruc
 - `tonumber(s)` converts a string to a number (returns nil if it can't)
 - `pairs(t)` returns an iterator for all key-value pairs in a table
 - `ipairs(t)` returns an iterator for array elements in order
-- `pcall(fn, ...)` calls a function inside a protected wrapper. Returns `{true, result}` on success or `{false, errorMessage}` on failure.
+- `pcall(fn, ...)` calls a function inside a protected wrapper. Returns `true, result` on success or `false, errorMessage` on failure.
 
 ## 5. Examples
 
@@ -467,3 +494,4 @@ print(sum(1, 2, 3, 4, 5))  -- 15
 - The 3D rasterizer is software-based. It is slow at full resolution. Use `scale < 1.0` for better performance.
 - No pattern matching in strings. `string.find` does basic substring search.
 - Tables use reference equality, not value equality. Two tables with identical contents are not considered equal.
+- `class`, `new`, `method` keywords are recognized by the parser but not implemented at runtime. OOP is not supported yet.

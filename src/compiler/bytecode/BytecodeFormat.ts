@@ -93,7 +93,7 @@ function getOpcodeNumber(name: string): number {
     'CLOSE_UPVALUE': 45, 'CLASS': 46, 'NEW_OBJECT': 47, 'LOAD_FIELD': 48,
     'STORE_FIELD': 49, 'METHOD_CALL': 50, 'FOR_PREP': 51, 'FOR_LOOP': 52,
     'TFOR_LOOP': 53, 'SET_LIST': 54, 'CONCAT': 55, 'LEN': 56,
-    'MULTI_RET': 57, 'FOR_IN': 58, 'FOR_IN_NEXT': 59, 'CALL_PROTECTED': 60,
+    'CALL_PROTECTED': 60,
     'VARARG': 61,
   };
   return map[name] || 0;
@@ -113,7 +113,7 @@ function getOpcodeName(num: number): string {
     45: 'CLOSE_UPVALUE', 46: 'CLASS', 47: 'NEW_OBJECT', 48: 'LOAD_FIELD',
     49: 'STORE_FIELD', 50: 'METHOD_CALL', 51: 'FOR_PREP', 52: 'FOR_LOOP',
     53: 'TFOR_LOOP', 54: 'SET_LIST', 55: 'CONCAT', 56: 'LEN',
-    57: 'MULTI_RET', 58: 'FOR_IN', 59: 'FOR_IN_NEXT', 60: 'CALL_PROTECTED',
+    60: 'CALL_PROTECTED',
     61: 'VARARG',
   };
   return names[num] || 'NOP';

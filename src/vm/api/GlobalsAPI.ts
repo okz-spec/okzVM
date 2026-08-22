@@ -610,17 +610,17 @@ export function registerNativeAPI(vm: VMCore, globals: Record<string, Value>): v
       const ps = vm.getProcStack();
       const fn = ps.pop();
       if (!fn || (fn.type !== 'function' && fn.type !== 'native')) {
-        return { type: 'array', value: { 1: vm.bool(false), 2: vm.str('attempt to call a non-function') } };
+        return vm.bool(false);
       }
       try {
         if (fn.type === 'native') {
           const result = (fn as any).value(vm);
-          return { type: 'array', value: { 1: vm.bool(true), 2: result } };
+          return { type: 'array', value: [vm.bool(true), result] };
         } else {
-          return { type: 'array', value: { 1: vm.bool(true), 2: vm.nil() } };
+          return { type: 'array', value: [vm.bool(true), vm.nil()] };
         }
       } catch (e: any) {
-        return { type: 'array', value: { 1: vm.bool(false), 2: vm.str(e?.message || 'unknown error') } };
+        return { type: 'array', value: [vm.bool(false), vm.str(e?.message || 'unknown error')] };
       }
     }};
 
@@ -683,5 +683,102 @@ export function registerNativeAPI(vm: VMCore, globals: Record<string, Value>): v
         return vm.nil();
       },
     };
-}
+
+    globals['tostring'] = {
+      type: 'native',
+      value: (vm: VMCore) => {
+        const val = vm.getProcStack().pop();
+        if (!val || val.type === 'nil') return vm.str('nil');
+        if (val.type === 'boolean') return vm.str(val.value ? 'true' : 'false');
+        if (val.type === 'number') return vm.str(String(val.value));
+        if (val.type === 'string') return val;
+        return vm.str(vm.interpreter.valueToString(val));
+      },
+    };
+
+    globals['tonumber'] = {
+      type: 'native',
+      value: (vm: VMCore) => {
+        const val = vm.getProcStack().pop();
+        if (!val || val.type === 'nil') return vm.nil();
+        if (val.type === 'number') return val;
+        if (val.type === 'string') {
+          const n = Number(val.value);
+          if (isNaN(n)) return vm.nil();
+          return vm.num(n);
+        }
+        return vm.nil();
+      },
+    };
+
+    globals['file'] = {
+      type: 'table', value: {
+        'read': { type: 'native', value: (vm: VMCore) => {
+          const path = vm.popStr();
+          const api = (window as any).electronAPI;
+          if (!api) return vm.nil();
+          try {
+            const full = vm.projectDir + '/' + path;
+            const content = api.readFileSync(full);
+            return vm.str(content || '');
+          } catch { return vm.nil(); }
+        }},
+        'readBinary': { type: 'native', value: (vm: VMCore) => {
+          const path = vm.popStr();
+          const api = (window as any).electronAPI;
+          if (!api) return vm.nil();
+          try {
+            const full = vm.projectDir + '/' + path;
+            const buf: Uint8Array = api.readFileSyncBinary(full);
+            if (!buf) return vm.nil();
+            const arr: Value[] = [];
+            for (let i = 0; i < buf.length; i++) arr[i + 1] = vm.num(buf[i]);
+            return { type: 'array', value: arr };
+          } catch { return vm.nil(); }
+        }},
+        'readDir': { type: 'native', value: (vm: VMCore) => {
+          const path = vm.popStr() || '.';
+          const api = (window as any).electronAPI;
+          if (!api) return vm.nil();
+          try {
+            const full = vm.projectDir + '/' + path;
+            const entries: string[] = api.listDir ? api.listDir(full) : [];
+            const arr: Value[] = [];
+            for (let i = 0; i < entries.length; i++) arr[i + 1] = vm.str(entries[i]);
+            return { type: 'array', value: arr };
+          } catch { return vm.nil(); }
+        }},
+        'write': { type: 'native', value: (vm: VMCore) => {
+          const content = vm.popStr();
+          const path = vm.popStr();
+          const api = (window as any).electronAPI;
+          if (!api) return vm.bool(false);
+          try {
+            const full = vm.projectDir + '/' + path;
+            api.writeFile(full, content);
+            return vm.bool(true);
+          } catch { return vm.bool(false); }
+        }},
+        'exists': { type: 'native', value: (vm: VMCore) => {
+          const path = vm.popStr();
+          const api = (window as any).electronAPI;
+          if (!api) return vm.bool(false);
+          try {
+            const full = vm.projectDir + '/' + path;
+            api.stat(full);
+            return vm.bool(true);
+          } catch { return vm.bool(false); }
+        }},
+        'delete': { type: 'native', value: (vm: VMCore) => {
+          const path = vm.popStr();
+          const api = (window as any).electronAPI;
+          if (!api) return vm.bool(false);
+          try {
+            const full = vm.projectDir + '/' + path;
+            api.deleteFile(full);
+            return vm.bool(true);
+          } catch { return vm.bool(false); }
+        }},
+      },
+    };
 }

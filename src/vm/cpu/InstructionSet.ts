@@ -30,7 +30,7 @@ export enum Opcode {
   NEW_ARRAY = 28,
   INDEX_GET = 29,
   INDEX_SET = 30,
-  NATIVE_CALL = 31,
+  NATIVE_CALL = 31,  // dead code — compiler never emits, Process.ts has no case for it
   HALT = 32,
   NEW_STRING = 33,
   NEW_NUMBER = 34,
@@ -45,20 +45,17 @@ export enum Opcode {
   GET_UPVALUE = 43,
   SET_UPVALUE = 44,
   CLOSE_UPVALUE = 45,
-  CLASS = 46,
-  NEW_OBJECT = 47,
-  LOAD_FIELD = 48,
-  STORE_FIELD = 49,
-  METHOD_CALL = 50,
-  FOR_PREP = 51,
-  FOR_LOOP = 52,
-  TFOR_LOOP = 53,
-  SET_LIST = 54,
+  CLASS = 46,        // stub — OOP not implemented
+  NEW_OBJECT = 47,   // stub — OOP not implemented
+  LOAD_FIELD = 48,   // stub — OOP not implemented
+  STORE_FIELD = 49,  // stub — OOP not implemented
+  METHOD_CALL = 50,  // stub — OOP not implemented
+  FOR_PREP = 51,     // unused — superseded by FOR_IN
+  FOR_LOOP = 52,     // unused — superseded by FOR_IN
+  TFOR_LOOP = 53,    // unused — superseded by FOR_IN
+  SET_LIST = 54,     // unused — superseded by FOR_IN
   CONCAT = 55,
   LEN = 56,
-  MULTI_RET = 57,
-  FOR_IN = 58,
-  FOR_IN_NEXT = 59,
   CALL_PROTECTED = 60,
   VARARG = 61,
 }
@@ -121,9 +118,6 @@ export const OPCODE_NAMES: Record<number, string> = {
   [Opcode.SET_LIST]: 'SET_LIST',
   [Opcode.CONCAT]: 'CONCAT',
   [Opcode.LEN]: 'LEN',
-  [Opcode.MULTI_RET]: 'MULTI_RET',
-  [Opcode.FOR_IN]: 'FOR_IN',
-  [Opcode.FOR_IN_NEXT]: 'FOR_IN_NEXT',
   [Opcode.CALL_PROTECTED]: 'CALL_PROTECTED',
   [Opcode.VARARG]: 'VARARG',
 };

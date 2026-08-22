@@ -1,7 +1,7 @@
 import { Lexer } from '../compiler/lexer/Lexer';
 import { Parser } from '../compiler/parser/Parser';
 import { Compiler } from '../compiler/compiler/Compiler';
-import { Value, BytecodeChunk, CallFrame } from '../vm/types';
+import { Value, BytecodeChunk, CallFrame, Upvalue } from '../vm/types';
 
 export interface TestEvent {
   type: string;
@@ -73,6 +73,7 @@ export class TestHarness {
   private maxCallDepth: number = 0;
   private executedInstructions: number = 0;
   private trace: boolean;
+  private openUpvalues: Upvalue[] = [];
 
   constructor(trace: boolean = false) {
     this.trace = trace;
@@ -625,6 +626,19 @@ export class TestHarness {
           this.halted = true;
           return false;
         }
+
+        // Close all open upvalues referencing this frame's locals
+        const frameLocals = frame.locals;
+        for (let i = this.openUpvalues.length - 1; i >= 0; i--) {
+          const uv = this.openUpvalues[i];
+          if (uv.localRef === frameLocals && !uv.closed) {
+            uv.closedValue = uv.localRef[uv.localIndex];
+            uv.closed = true;
+            uv.localRef = undefined;
+            this.openUpvalues.splice(i, 1);
+          }
+        }
+
         this.pc = frame.pc;
         this.locals = frame.locals;
         this.stack = this.stack.slice(0, frame.sp + 1);
@@ -746,59 +760,6 @@ export class TestHarness {
         return false;
       }
 
-      case 'MULTI_RET': {
-        const desired = ops[0] || 1;
-        const nvals = ops[1] || 1;
-        const excess = nvals - desired;
-        if (excess > 0) {
-          this.stack.splice(this.stack.length - excess, excess);
-        }
-        return true;
-      }
-
-      case 'FOR_IN': {
-        const iteratorFn = this.pop();
-        const state = this.pop();
-        const initial = this.pop();
-        this.push(initial);
-        this.push(state);
-        this.push(iteratorFn);
-        return true;
-      }
-
-      case 'FOR_IN_NEXT': {
-        const varCount = ops[0] || 1;
-        const exitAddr = ops[1] || 0;
-        const iteratorFn = this.stack[this.stack.length - 1];
-        const state = this.stack[this.stack.length - 2];
-        const control = this.stack[this.stack.length - 3];
-        if (iteratorFn.type === 'native' || iteratorFn.type === 'function') {
-          this.push(control);
-          this.push(state);
-          this.push(iteratorFn);
-          if (iteratorFn.type === 'native') {
-            const result = iteratorFn.value(...[control, state]);
-            if (result.type === 'nil') {
-              this.stack.splice(this.stack.length - 5, 5);
-              this.pc = exitAddr;
-            } else {
-              this.stack.splice(this.stack.length - 5, 5);
-              this.push(result);
-              for (let i = 1; i < varCount; i++) this.push(this.nilVal());
-            }
-          } else {
-            const removed = this.stack.splice(this.stack.length - 3, 3);
-            this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals.slice(), name: 'for_in_next', nvals: varCount, protected: false });
-            this.pc = iteratorFn.value.address;
-            this.locals = [];
-          }
-        } else {
-          this.stack.splice(this.stack.length - 3, 3);
-          this.pc = exitAddr;
-        }
-        return true;
-      }
-
       case 'CALL_PROTECTED': {
         const argCount = ops[0];
         const fnVal = this.stack[this.stack.length - 1 - argCount];
@@ -848,13 +809,15 @@ export class TestHarness {
         const fnVal = this.stack[this.stack.length - 1];
         if (fnVal.type === 'function') {
           const enclosingFrame = this.frames.length > 0 ? this.frames[this.frames.length - 1] : null;
-          fnVal.value.upvalues.push({
+          const uv: Upvalue = {
             name: uvName,
             localIndex,
             isLocal,
             closed: false,
             localRef: enclosingFrame ? enclosingFrame.locals : this.locals,
-          });
+          };
+          fnVal.value.upvalues.push(uv);
+          this.openUpvalues.push(uv);
         }
         return true;
       }
@@ -866,7 +829,10 @@ export class TestHarness {
           const frame = this.frames[this.frames.length - 1];
           if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
             const uv = frame.funcVal.upvalues[uvIndex];
-            if (uv.localRef) {
+            if (uv.closed) {
+              this.push(uv.closedValue ?? this.nilVal());
+              found = true;
+            } else if (uv.localRef) {
               this.push(uv.localRef[uv.localIndex]);
               found = true;
             }
@@ -883,8 +849,28 @@ export class TestHarness {
           const frame = this.frames[this.frames.length - 1];
           if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
             const uv = frame.funcVal.upvalues[uvIndex];
-            if (uv.localRef) {
+            if (uv.closed) {
+              uv.closedValue = val;
+            } else if (uv.localRef) {
               uv.localRef[uv.localIndex] = val;
+            }
+          }
+        }
+        return true;
+      }
+
+      case 'CLOSE_UPVALUE': {
+        const uvIndex = ops[0] || 0;
+        if (this.frames.length > 0) {
+          const frame = this.frames[this.frames.length - 1];
+          if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
+            const uv = frame.funcVal.upvalues[uvIndex];
+            if (!uv.closed && uv.localRef) {
+              uv.closedValue = uv.localRef[uv.localIndex];
+              uv.closed = true;
+              uv.localRef = undefined;
+              const idx = this.openUpvalues.indexOf(uv);
+              if (idx >= 0) this.openUpvalues.splice(idx, 1);
             }
           }
         }
@@ -971,9 +957,6 @@ export class TestHarness {
         case 'FOR_LOOP': case 'TFOR_LOOP': case 'METHOD_CALL': break;
         case 'SET_LIST': simStack = Math.max(0, simStack - 2); break;
         case 'MAKE_FUNCTION': case 'CLOSURE': simStack++; break;
-        case 'MULTI_RET': break;
-        case 'FOR_IN': simStack = Math.max(0, simStack - 3); simStack += 3; break;
-        case 'FOR_IN_NEXT': break;
         case 'CALL_PROTECTED': { const argCount = ops[0]; simStack = Math.max(0, simStack - argCount); break; }
         default: break;
       }

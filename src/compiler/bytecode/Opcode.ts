@@ -56,9 +56,6 @@ export enum Opcode {
   SET_LIST = 54,
   CONCAT = 55,
   LEN = 56,
-  MULTI_RET = 57,
-  FOR_IN = 58,
-  FOR_IN_NEXT = 59,
   CALL_PROTECTED = 60,
   VARARG = 61,
 }
@@ -76,6 +73,6 @@ export const OPCODE_NAMES: Record<number, string> = {
   45: 'CLOSE_UPVALUE', 46: 'CLASS', 47: 'NEW_OBJECT', 48: 'LOAD_FIELD',
   49: 'STORE_FIELD', 50: 'METHOD_CALL', 51: 'FOR_PREP', 52: 'FOR_LOOP',
   53: 'TFOR_LOOP', 54: 'SET_LIST', 55: 'CONCAT', 56: 'LEN',
-  57: 'MULTI_RET', 58: 'FOR_IN', 59: 'FOR_IN_NEXT', 60: 'CALL_PROTECTED',
+  60: 'CALL_PROTECTED',
   61: 'VARARG',
 };

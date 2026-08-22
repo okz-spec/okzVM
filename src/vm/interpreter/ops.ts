@@ -18,7 +18,7 @@ export const _opcodeMap: Record<string, number> = {
   'SET_UPVALUE':44,'CLOSE_UPVALUE':45,'CLASS':46,'NEW_OBJECT':47,
   'LOAD_FIELD':48,'STORE_FIELD':49,'METHOD_CALL':50,'FOR_PREP':51,
   'FOR_LOOP':52,'TFOR_LOOP':53,'SET_LIST':54,'CONCAT':55,'LEN':56,
-  'MULTI_RET':57,'FOR_IN':58,'FOR_IN_NEXT':59,'CALL_PROTECTED':60,'VARARG':61,
+  'CALL_PROTECTED':60,'VARARG':61,
 };
 
 export function numVal(v: Value): number {

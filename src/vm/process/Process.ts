@@ -1,4 +1,4 @@
-import { Value, BytecodeChunk, CallFrame, ProcessState, StepResult } from '../types';
+import { Value, BytecodeChunk, CallFrame, ProcessState, StepResult, Upvalue } from '../types';
 import { _opcodeMap, numVal, truthy, valuesEqual, valueToString } from '../interpreter/ops';
 
 const _nil: Value = { type: 'nil' };
@@ -28,6 +28,7 @@ export class Process {
   public created: number = Date.now();
   public cpuTime: number = 0;
   public sleepUntil: number = 0;
+  public openUpvalues: Upvalue[] = [];
 
   constructor(id: number, name: string, chunk: BytecodeChunk) {
     this.id = id;
@@ -124,6 +125,20 @@ export class Process {
         }
         const frame = this.frames.pop();
         if (!frame) { this.halted = true; return 'halt'; }
+
+        // Close all open upvalues referencing this frame's locals
+        const frameLocals = frame.locals;
+        for (let i = this.openUpvalues.length - 1; i >= 0; i--) {
+          const uv = this.openUpvalues[i];
+          if (uv.localRef === frameLocals && !uv.closed) {
+            uv.closedValue = uv.localRef[uv.localIndex];
+            uv.closed = true;
+            uv.localRef = undefined;
+            uv.frameRef = undefined;
+            this.openUpvalues.splice(i, 1);
+          }
+        }
+
         this.pc = frame.pc;
         this.locals = frame.locals;
         this.stack.length = frame.sp + 1;
@@ -201,26 +216,30 @@ export class Process {
         if (fnVal.type === 'function') {
           // Capture a reference to the enclosing frame's locals
           const enclosingFrame = this.frames.length > 0 ? this.frames[this.frames.length - 1] : null;
-          fnVal.value.upvalues.push({
+          const uv: Upvalue = {
             name: uvName,
             localIndex,
             isLocal,
             closed: false,
             frameRef: enclosingFrame,
             localRef: enclosingFrame ? enclosingFrame.locals : this.locals,
-          });
+          };
+          fnVal.value.upvalues.push(uv);
+          this.openUpvalues.push(uv);
         }
         break;
       }
       case 43: { // GET_UPVALUE
         const uvIndex = ops[0] || 0;
-        // Read from the current function's upvalue array
         let found = false;
         if (this.frames.length > 0) {
           const frame = this.frames[this.frames.length - 1];
           if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
             const uv = frame.funcVal.upvalues[uvIndex];
-            if (uv.localRef) {
+            if (uv.closed) {
+              this.push(uv.closedValue ?? _nil);
+              found = true;
+            } else if (uv.localRef) {
               this.push(uv.localRef[uv.localIndex]);
               found = true;
             }
@@ -236,69 +255,38 @@ export class Process {
           const frame = this.frames[this.frames.length - 1];
           if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
             const uv = frame.funcVal.upvalues[uvIndex];
-            if (uv.localRef) {
+            if (uv.closed) {
+              uv.closedValue = val;
+            } else if (uv.localRef) {
               uv.localRef[uv.localIndex] = val;
             }
           }
         }
         break;
       }
-      case 45: break; // CLOSE_UPVALUE (no-op for now)
+      case 45: { // CLOSE_UPVALUE: close a specific upvalue on the current frame
+        const uvIndex = ops[0] || 0;
+        if (this.frames.length > 0) {
+          const frame = this.frames[this.frames.length - 1];
+          if (frame.funcVal && uvIndex < frame.funcVal.upvalues.length) {
+            const uv = frame.funcVal.upvalues[uvIndex];
+            if (!uv.closed && uv.localRef) {
+              uv.closedValue = uv.localRef[uv.localIndex];
+              uv.closed = true;
+              uv.localRef = undefined;
+              uv.frameRef = undefined;
+              const idx = this.openUpvalues.indexOf(uv);
+              if (idx >= 0) this.openUpvalues.splice(idx, 1);
+            }
+          }
+        }
+        break;
+      }
       case 46: case 47: case 48:
-      case 49: case 50: this.push(_nil); break;
-      case 51: case 52: case 53: case 54: break;
+      case 49: case 50: this.push(_nil); break; // CLASS/NEW_OBJECT/LOAD_FIELD/STORE_FIELD/METHOD_CALL — stubs, OOP not implemented
+      case 51: case 52: case 53: case 54: break; // FOR_PREP/FOR_LOOP/TFOR_LOOP/SET_LIST — unused
       case 55: { const b = this.pop(); const a = this.pop(); const sa = a.type === 'string' ? a.value : valueToString(a); const sb = b.type === 'string' ? b.value : valueToString(b); this.push({ type: 'string', value: sa + sb }); break; }
       case 56: { const v = this.pop(); if (v.type === 'string') this.push({ type: 'number', value: v.value.length }); else if (v.type === 'array') this.push({ type: 'number', value: Object.keys(v.value).length }); else if (v.type === 'table') this.push({ type: 'number', value: Object.keys(v.value).length }); else this.push({ type: 'number', value: 0 }); break; }
-      case 57: { // MULTI_RET: trim excess return values
-        const desired = ops[0] || 1;
-        const nvals = ops[1] || 1;
-        const excess = nvals - desired;
-        if (excess > 0) {
-          this.stack.splice(this.stack.length - excess, excess);
-        }
-        break;
-      }
-      case 58: { // FOR_IN: initialize generic for loop
-        const iteratorFn = this.pop();
-        const state = this.pop();
-        const initial = this.pop();
-        this.push(initial);
-        this.push(state);
-        this.push(iteratorFn);
-        break;
-      }
-      case 59: { // FOR_IN_NEXT: call iterator and check for nil
-        const varCount = ops[0] || 1;
-        const exitAddr = ops[1] || 0;
-        const iteratorFn = this.stack[this.stack.length - 1];
-        const state = this.stack[this.stack.length - 2];
-        const control = this.stack[this.stack.length - 3];
-        if (iteratorFn.type === 'native' || iteratorFn.type === 'function') {
-          this.push(control);
-          this.push(state);
-          this.push(iteratorFn);
-          if (iteratorFn.type === 'native') {
-            const result = iteratorFn.value(this.context || this);
-            if (result.type === 'nil') {
-              this.stack.splice(this.stack.length - 5, 5);
-              this.pc = exitAddr;
-            } else {
-              this.stack.splice(this.stack.length - 5, 5);
-              this.push(result);
-              for (let i = 1; i < varCount; i++) this.push(_nil);
-            }
-          } else {
-            const removed = this.stack.splice(this.stack.length - 3, 3);
-            this.frames.push({ pc: this.pc, sp: this.stack.length - 1, locals: this.locals, name: 'for_in_next', nvals: varCount, protected: false });
-            this.pc = iteratorFn.value.address;
-            this.locals = removed;
-          }
-        } else {
-          this.stack.splice(this.stack.length - 3, 3);
-          this.pc = exitAddr;
-        }
-        break;
-      }
       case 60: { // CALL_PROTECTED: call with error protection
         const argCount = ops[0];
         const handlerAddr = ops[1];
@@ -364,6 +352,20 @@ export class Process {
         if (this.frames[i].protected) { unwindIdx = i; break; }
       }
       if (unwindIdx >= 0) {
+        // Close upvalues for all frames being unwound
+        for (let f = this.frames.length - 1; f >= unwindIdx; f--) {
+          const frameLocals = this.frames[f].locals;
+          for (let i = this.openUpvalues.length - 1; i >= 0; i--) {
+            const uv = this.openUpvalues[i];
+            if (uv.localRef === frameLocals && !uv.closed) {
+              uv.closedValue = uv.localRef[uv.localIndex];
+              uv.closed = true;
+              uv.localRef = undefined;
+              uv.frameRef = undefined;
+              this.openUpvalues.splice(i, 1);
+            }
+          }
+        }
         const frame = this.frames[unwindIdx];
         // Unwind: drop all frames above the protected one
         this.frames.length = unwindIdx;
@@ -409,6 +411,7 @@ export class Process {
     this.stack = [];
     this.locals = [];
     this.frames = [];
+    this.openUpvalues = [];
     this.halted = true;
     this.files.clear();
   }

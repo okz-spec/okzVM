@@ -52,7 +52,7 @@ export class VMCore {
   private lastTickCount: number = 0;
   private lastGpuCount: number = 0;
   private instructionsPerFrame: number;
-  private projectDir: string = '';
+  public projectDir: string = '';
   private lastFrameTick: number = 0;
 
   public mainProcess: Process | null = null;
@@ -387,6 +387,7 @@ export class VMCore {
         dot: { type: 'native', value: (vm: VMCore) => { const o = vm.getProcStack().pop(); const s = vm.getProcStack().pop(); const sx = (s as any).value?.x?.value ?? 0; const sy = (s as any).value?.y?.value ?? 0; const sz = (s as any).value?.z?.value ?? 0; const ox = (o as any).value?.x?.value ?? 0; const oy = (o as any).value?.y?.value ?? 0; const oz = (o as any).value?.z?.value ?? 0; return vm.num(sx*ox + sy*oy + sz*oz); }},
         cross: { type: 'native', value: (vm: VMCore) => { const o = vm.getProcStack().pop(); const s = vm.getProcStack().pop(); const sx = (s as any).value?.x?.value ?? 0; const sy = (s as any).value?.y?.value ?? 0; const sz = (s as any).value?.z?.value ?? 0; const ox = (o as any).value?.x?.value ?? 0; const oy = (o as any).value?.y?.value ?? 0; const oz = (o as any).value?.z?.value ?? 0; return vm.mathVec3(sy*oz - sz*oy, sz*ox - sx*oz, sx*oy - sy*ox); }},
         normalize: { type: 'native', value: (vm: VMCore) => { const s = vm.getProcStack().pop(); const sx = (s as any).value?.x?.value ?? 0; const sy = (s as any).value?.y?.value ?? 0; const sz = (s as any).value?.z?.value ?? 0; const len = Math.sqrt(sx*sx + sy*sy + sz*sz); return len === 0 ? vm.mathVec3(0,0,0) : vm.mathVec3(sx/len, sy/len, sz/len); }},
+        distance: { type: 'native', value: (vm: VMCore) => { const o = vm.getProcStack().pop(); const s = vm.getProcStack().pop(); const sx = (s as any).value?.x?.value ?? 0; const sy = (s as any).value?.y?.value ?? 0; const sz = (s as any).value?.z?.value ?? 0; const ox = (o as any).value?.x?.value ?? 0; const oy = (o as any).value?.y?.value ?? 0; const oz = (o as any).value?.z?.value ?? 0; const dx = sx-ox; const dy = sy-oy; const dz = sz-oz; return vm.num(Math.sqrt(dx*dx + dy*dy + dz*dz)); }},
       }
     };
   }
